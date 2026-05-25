@@ -122,6 +122,23 @@ function NewRunForm({ onStarted }: { onStarted: (id: string) => void }) {
   const [pdfFile, setPdfFile] = useState<File | null>(null);
   const [imageFile, setImageFile] = useState<File | null>(null);
   const [busy, setBusy] = useState(false);
+  const [registryAgents, setRegistryAgents] = useState<AgentRow[]>([]);
+  const [modelOverrides, setModelOverrides] = useState<Record<string, string>>({});
+
+  useEffect(() => {
+    const load = async () => {
+      const { data } = await supabase.from("agent_registry").select("*").order("order_index");
+      if (data) {
+        setRegistryAgents(data as AgentRow[]);
+        const defaults: Record<string, string> = {};
+        data.forEach((a: any) => {
+          defaults[a.key] = a.model;
+        });
+        setModelOverrides(defaults);
+      }
+    };
+    load();
+  }, []);
 
   const uploadToBucket = async (file: File, prefix: string): Promise<string | null> => {
     const { data: { user } } = await supabase.auth.getUser();
@@ -153,7 +170,15 @@ function NewRunForm({ onStarted }: { onStarted: (id: string) => void }) {
       }
       const finalTopic = topic.trim() || (url.trim() || (pdfFile?.name ?? imageFile?.name ?? "untitled"));
       const { data, error } = await supabase.functions.invoke("pipeline-orchestrator", {
-        body: { action: "start", topic: finalTopic, brand_voice: voice, language, input_type, input_payload },
+        body: { 
+          action: "start", 
+          topic: finalTopic, 
+          brand_voice: voice, 
+          language, 
+          input_type, 
+          input_payload,
+          model_overrides: modelOverrides
+        },
       });
       if (error || !data?.run_id) {
         toast({ title: "Failed to start", description: error?.message || data?.error, variant: "destructive" });
@@ -220,6 +245,51 @@ function NewRunForm({ onStarted }: { onStarted: (id: string) => void }) {
           </select>
         </div>
       </div>
+
+      {/* Agent Model Settings */}
+      {registryAgents.length > 0 && (
+        <div className="border-t border-border pt-3">
+          <details className="group">
+            <summary className="flex items-center justify-between text-xs font-medium cursor-pointer select-none text-muted-foreground hover:text-foreground">
+              <span>Customize Agent Models</span>
+              <span className="text-[10px] text-muted-foreground group-open:rotate-180 transition-transform">▼</span>
+            </summary>
+            <div className="mt-2 space-y-2 max-h-60 overflow-y-auto pr-1">
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-[10px] text-muted-foreground">Override models:</span>
+                <button
+                  type="button"
+                  className="text-[10px] border border-border rounded px-2 py-0.5 hover:bg-muted font-medium transition-colors"
+                  onClick={() => {
+                    const overridden = { ...modelOverrides };
+                    Object.keys(overridden).forEach(k => {
+                      overridden[k] = "gemini-2.5-flash";
+                    });
+                    setModelOverrides(overridden);
+                    toast({ title: "All agents set to Flash model" });
+                  }}
+                >
+                  Set All to Flash (Free)
+                </button>
+              </div>
+              {registryAgents.filter(a => a.enabled).map((agent) => (
+                <div key={agent.key} className="flex items-center justify-between gap-2 text-xs">
+                  <span className="truncate flex-1 font-medium">{agent.name}</span>
+                  <select
+                    value={modelOverrides[agent.key] || agent.model}
+                    onChange={(e) => setModelOverrides({ ...modelOverrides, [agent.key]: e.target.value })}
+                    className="h-7 text-[11px] rounded-md border border-input bg-background px-2 py-0"
+                  >
+                    <option value="gemini-2.5-flash">Gemini 2.5 Flash</option>
+                    <option value="gemini-2.5-pro">Gemini 2.5 Pro</option>
+                  </select>
+                </div>
+              ))}
+            </div>
+          </details>
+        </div>
+      )}
+
       <Button onClick={start} disabled={busy} className="w-full">
         <Play className="w-4 h-4 mr-2" />
         {busy ? "Starting…" : "Run pipeline"}

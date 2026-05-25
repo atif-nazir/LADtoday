@@ -14,10 +14,10 @@ import { insertLog } from "../_shared/logger.ts";
 import {
   writeAgentOutput, readAgentOutput, patchAgentState, loadRun,
 } from "../_shared/pipeline.ts";
+import { selectModelForAgent } from "../_shared/model-config.ts";
 
 const AGENT_KEY = "intelligence";
 const AGENT_NAME = "Intelligence";
-const MODEL = "gemini-2.5-flash"; // Pro: deep multi-source reasoning, content_brief accuracy critical
 
 const supabase = createClient(
   Deno.env.get("SUPABASE_URL")!,
@@ -215,7 +215,8 @@ async function extractIntelligence(
   brandVoice: string,
   language: string,
   topicCategory: string,
-  learning: Awaited<ReturnType<typeof loadLearningContext>>
+  learning: Awaited<ReturnType<typeof loadLearningContext>>,
+  selectedModel: string
 ): Promise<IntelligenceOutput> {
 
   // Inject learning context into prompt if available
@@ -335,7 +336,7 @@ Return this exact JSON:
   const temp = learning.totalRunsLearned > 10 ? 0.5 : 0.65;
 
   const raw = await geminiJson<any>(prompt, schema, {
-    model: MODEL,
+    model: selectedModel,
     temperature: temp,
     maxOutputTokens: 6144,
   });
@@ -404,8 +405,7 @@ Deno.serve(async (req) => {
       });
     }
 
-    const body = await req.json().catch(() => ({}));
-    const { run_id } = body;
+    const { run_id, model_override } = await req.json().catch(() => ({}));
     if (!run_id) {
       return new Response(JSON.stringify({ error: "run_id is required" }), {
         status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -444,9 +444,10 @@ Deno.serve(async (req) => {
     console.log(`[${AGENT_NAME}] Context built: ${sourceCount} sources, ~${totalTokens} tokens, temp=${learning.totalRunsLearned > 10 ? 0.5 : 0.65}`);
 
     // ── Step 4: Run intelligence extraction (Pro model + learning) ──
-    console.log(`[${AGENT_NAME}] Calling Gemini Pro (learning_applied=${learning.totalRunsLearned > 0})...`);
+    console.log(`[${AGENT_NAME}] Calling Gemini (learning_applied=${learning.totalRunsLearned > 0})...`);
+    const selectedModel = selectModelForAgent(AGENT_KEY, model_override);
     const intelligence = await extractIntelligence(
-      topic, context, sourceCount, brandVoice, language, topicCategory, learning
+      topic, context, sourceCount, brandVoice, language, topicCategory, learning, selectedModel
     );
 
     const durationMs = Date.now() - startedAt;
