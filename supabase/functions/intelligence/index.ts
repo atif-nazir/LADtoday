@@ -17,7 +17,7 @@ import {
 
 const AGENT_KEY = "intelligence";
 const AGENT_NAME = "Intelligence";
-const MODEL = "gemini-2.5-pro"; // Pro: deep multi-source reasoning, content_brief accuracy critical
+const MODEL = "gemini-2.5-flash"; // Pro: deep multi-source reasoning, content_brief accuracy critical
 
 const supabase = createClient(
   Deno.env.get("SUPABASE_URL")!,
