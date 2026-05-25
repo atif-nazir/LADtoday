@@ -314,49 +314,9 @@ Return this exact JSON:
   const schema = {
     type: "object",
     properties: {
-      key_facts: {
-        type: "array",
-        items: {
-          type: "object",
-          properties: {
-            fact: { type: "string" },
-            source_domain: { type: "string" },
-            source_index: { type: "integer" },
-            confidence: { type: "string" },
-            fact_type: { type: "string" }
-          },
-          required: ["fact", "source_domain", "source_index", "confidence", "fact_type"]
-        }
-      },
-      contradictions: {
-        type: "array",
-        items: {
-          type: "object",
-          properties: {
-            claim_a: { type: "string" },
-            source_a_domain: { type: "string" },
-            claim_b: { type: "string" },
-            source_b_domain: { type: "string" },
-            severity: { type: "string" },
-            resolution: { type: "string" },
-            recommended_version: { type: "string" }
-          },
-          required: ["claim_a", "source_a_domain", "claim_b", "source_b_domain", "severity", "resolution", "recommended_version"]
-        }
-      },
-      entities: {
-        type: "array",
-        items: {
-          type: "object",
-          properties: {
-            name: { type: "string" },
-            type: { type: "string" },
-            mention_count: { type: "integer" },
-            context: { type: "string" }
-          },
-          required: ["name", "type", "mention_count", "context"]
-        }
-      },
+      key_facts: { type: "array", items: { type: "object", properties: { fact: { type: "string" }, source_domain: { type: "string" }, source_index: { type: "integer" }, confidence: { type: "string" }, fact_type: { type: "string" } } } },
+      contradictions: { type: "array", items: { type: "object", properties: { claim_a: { type: "string" }, source_a_domain: { type: "string" }, claim_b: { type: "string" }, source_b_domain: { type: "string" }, severity: { type: "string" }, resolution: { type: "string" }, recommended_version: { type: "string" } } } },
+      entities: { type: "array", items: { type: "object", properties: { name: { type: "string" }, type: { type: "string" }, mention_count: { type: "integer" }, context: { type: "string" } } } },
       best_angle: { type: "string" },
       angle_justification: { type: "string" },
       learned_angle_type: { type: "string" },
@@ -370,23 +330,6 @@ Return this exact JSON:
       missing_perspectives: { type: "array", items: { type: "string" } },
       intelligence_confidence: { type: "string" },
     },
-    required: [
-      "key_facts",
-      "contradictions",
-      "entities",
-      "best_angle",
-      "angle_justification",
-      "learned_angle_type",
-      "content_brief",
-      "virality_score",
-      "virality_factors",
-      "noise_sources",
-      "trusted_sources",
-      "topic_complexity",
-      "reader_prerequisite",
-      "missing_perspectives",
-      "intelligence_confidence"
-    ]
   };
 
   // Dynamic temperature: lower when learning says to be precise, higher when exploring

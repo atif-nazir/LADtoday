@@ -295,19 +295,7 @@ Return JSON:
       peak_prediction_hours: { type: "number" },
       optimal_publish: { type: "string" },
       optimal_publish_reason: { type: "string" },
-      breakout_angles: {
-        type: "array",
-        items: {
-          type: "object",
-          properties: {
-            angle: { type: "string" },
-            reason: { type: "string" },
-            urgency: { type: "string" },
-            search_query: { type: "string" }
-          },
-          required: ["angle", "reason", "urgency", "search_query"]
-        }
-      },
+      breakout_angles: { type: "array", items: { type: "object", properties: { angle: { type: "string" }, reason: { type: "string" }, urgency: { type: "string" }, search_query: { type: "string" } } } },
       pakistan_relevance: { type: "number" },
       pakistan_cities_impacted: { type: "array", items: { type: "string" } },
       pakistan_sectors_impacted: { type: "array", items: { type: "string" } },
@@ -324,29 +312,6 @@ Return JSON:
       news_peg: { type: "string" },
       trend_rationale: { type: "string" },
     },
-    required: [
-      "trend_momentum",
-      "trajectory",
-      "peak_prediction_hours",
-      "optimal_publish",
-      "optimal_publish_reason",
-      "breakout_angles",
-      "pakistan_relevance",
-      "pakistan_cities_impacted",
-      "pakistan_sectors_impacted",
-      "pakistan_angle",
-      "twitter_velocity",
-      "linkedin_interest",
-      "youtube_trend",
-      "seasonal_factor",
-      "recurring_pattern",
-      "oversaturation_risk",
-      "first_mover_advantage",
-      "competitor_coverage_estimate",
-      "evergreen_potential",
-      "news_peg",
-      "trend_rationale"
-    ]
   };
 
   const raw = await geminiJson<any>(prompt, schema, {
