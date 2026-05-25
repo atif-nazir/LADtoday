@@ -17,6 +17,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { geminiJson, GeminiError } from "../_shared/gemini.ts";
 import { insertLog } from "../_shared/logger.ts";
 import { writeAgentOutput, patchAgentState, loadRun } from "../_shared/pipeline.ts";
+import { selectModelForAgent } from "../_shared/model-config.ts";
 
 const AGENT_KEY = "scout";
 const AGENT_NAME = "Scout";
@@ -103,12 +104,13 @@ async function fetchUrlContent(url: string): Promise<string> {
 
 // ─── Step 1: Expand a human prompt into focused search queries ───────────────
 
-async function expandQueries(topic: string, language: string): Promise<string[]> {
+async function expandQueries(topic: string, language: string, modelName: string): Promise<string[]> {
   const schema = {
     type: "object",
     properties: {
       queries: { type: "array", items: { type: "string" } },
     },
+    required: ["queries"]
   };
   const prompt = `You are a research assistant. The user asked (in plain language):
 """${topic}"""
@@ -118,7 +120,7 @@ Convert this into 3-5 focused web search queries that a journalist would type in
 Return JSON: { "queries": ["...","..."] }`;
   try {
     const out = await geminiJson<{ queries: string[] }>(prompt, schema, {
-      model: MODEL, temperature: 0.4, maxOutputTokens: 512,
+      model: modelName, temperature: 0.4, maxOutputTokens: 512,
     });
     const qs = (out.queries || []).map(q => q.trim()).filter(Boolean);
     return qs.length ? qs.slice(0, 5) : [topic];
@@ -156,9 +158,9 @@ async function firecrawlSearch(query: string): Promise<{ url: string; title: str
 
 // ─── Step 2b: Web search via Gemini Google Search grounding ──────────────────
 
-async function geminiGroundedSearch(query: string): Promise<{ url: string; title: string; snippet: string }[]> {
+async function geminiGroundedSearch(query: string, modelName: string): Promise<{ url: string; title: string; snippet: string }[]> {
   if (!GEMINI_API_KEY) return [];
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent?key=${GEMINI_API_KEY}`;
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${GEMINI_API_KEY}`;
   try {
     const res = await fetch(url, {
       method: "POST",
@@ -184,17 +186,17 @@ async function geminiGroundedSearch(query: string): Promise<{ url: string; title
 
 // ─── Step 3: Discover + fetch real sources for a topic ───────────────────────
 
-async function discoverSources(topic: string, language: string): Promise<{
+async function discoverSources(topic: string, language: string, modelName: string): Promise<{
   rawSources: { url: string; title: string; snippet: string; markdown?: string }[];
   queries: string[];
   method: "firecrawl" | "gemini_grounding";
 }> {
-  const queries = await expandQueries(topic, language);
+  const queries = await expandQueries(topic, language, modelName);
   const useFirecrawl = !!FIRECRAWL_API_KEY;
   const method: "firecrawl" | "gemini_grounding" = useFirecrawl ? "firecrawl" : "gemini_grounding";
 
   const buckets = await Promise.all(queries.map(q =>
-    useFirecrawl ? firecrawlSearch(q) : geminiGroundedSearch(q)
+    useFirecrawl ? firecrawlSearch(q) : geminiGroundedSearch(q, modelName)
   ));
 
   const flat = buckets.flat();
@@ -214,6 +216,7 @@ async function discoverSources(topic: string, language: string): Promise<{
 async function scoreSources(
   topic: string,
   raws: { url: string; title: string; snippet: string; markdown?: string }[],
+  modelName: string
 ): Promise<SourceResult[]> {
   if (raws.length === 0) return [];
 
@@ -243,6 +246,18 @@ async function scoreSources(
             sentiment: { type: "string" },
             credibility_signals: { type: "array", items: { type: "string" } },
           },
+          required: [
+            "index",
+            "full_text",
+            "author",
+            "publish_date",
+            "credibility_score",
+            "recency_score",
+            "relevance_score",
+            "key_facts",
+            "sentiment",
+            "credibility_signals"
+          ]
         },
       },
       top_source_domain: { type: "string" },
@@ -252,6 +267,15 @@ async function scoreSources(
       pakistan_relevance_score: { type: "number" },
       scout_notes: { type: "string" },
     },
+    required: [
+      "sources",
+      "top_source_domain",
+      "overall_sentiment",
+      "content_density",
+      "recommended_angle",
+      "pakistan_relevance_score",
+      "scout_notes"
+    ]
   };
 
   const sourcesBlock = enriched.map((s, i) =>
@@ -287,7 +311,7 @@ Return JSON with shape:
 
   let scored: any;
   try {
-    scored = await geminiJson(prompt, schema, { model: MODEL, temperature: 0.3, maxOutputTokens: 6144 });
+    scored = await geminiJson(prompt, schema, { model: modelName, temperature: 0.3, maxOutputTokens: 6144 });
   } catch (err) {
     console.error(`[${AGENT_NAME}] scoreSources Gemini error:`, err);
     // Fallback: build skeletal results
@@ -341,9 +365,9 @@ Return JSON with shape:
 
 // ─── Workflow: topic ─────────────────────────────────────────────────────────
 
-async function scoutByTopic(topic: string, language: string): Promise<ScoutOutput> {
-  const { rawSources, queries, method } = await discoverSources(topic, language);
-  const sources = await scoreSources(topic, rawSources);
+async function scoutByTopic(topic: string, language: string, modelName: string): Promise<ScoutOutput> {
+  const { rawSources, queries, method } = await discoverSources(topic, language, modelName);
+  const sources = await scoreSources(topic, rawSources, modelName);
   const meta: any = (sources as any)._meta || {};
   return {
     sources,
@@ -364,18 +388,18 @@ async function scoutByTopic(topic: string, language: string): Promise<ScoutOutpu
 
 // ─── Workflow: URL ───────────────────────────────────────────────────────────
 
-async function scoutByUrl(url: string, topic: string, language: string): Promise<ScoutOutput> {
+async function scoutByUrl(url: string, topic: string, language: string, modelName: string): Promise<ScoutOutput> {
   const body = await fetchUrlContent(url);
   const primaryRaw = [{ url, title: topic || slugifyDomain(url), snippet: "", markdown: body }];
 
   // Supplement with topic search
   const topicForSearch = topic && topic !== url ? topic : `articles related to ${slugifyDomain(url)}`;
-  const { rawSources: supplemental, method } = await discoverSources(topicForSearch, language);
+  const { rawSources: supplemental, method } = await discoverSources(topicForSearch, language, modelName);
   const combined = [
     ...primaryRaw,
     ...supplemental.filter(s => s.url !== url).slice(0, 4),
   ];
-  const sources = await scoreSources(topicForSearch, combined);
+  const sources = await scoreSources(topicForSearch, combined, modelName);
   const meta: any = (sources as any)._meta || {};
   return {
     sources,
@@ -410,7 +434,7 @@ async function extractPdfText(pdfUrl: string): Promise<string> {
   }
 }
 
-async function scoutByPdf(pdfUrl: string, topic: string, language: string): Promise<ScoutOutput> {
+async function scoutByPdf(pdfUrl: string, topic: string, language: string, modelName: string): Promise<ScoutOutput> {
   const text = await extractPdfText(pdfUrl);
   const primaryRaw = [{
     url: pdfUrl,
@@ -419,9 +443,9 @@ async function scoutByPdf(pdfUrl: string, topic: string, language: string): Prom
     markdown: text,
   }];
   const inferredTopic = topic || text.slice(0, 200);
-  const { rawSources: supplemental, method } = await discoverSources(inferredTopic, language);
+  const { rawSources: supplemental, method } = await discoverSources(inferredTopic, language, modelName);
   const combined = [...primaryRaw, ...supplemental.slice(0, 4)];
-  const sources = await scoreSources(inferredTopic, combined);
+  const sources = await scoreSources(inferredTopic, combined, modelName);
   const meta: any = (sources as any)._meta || {};
   return {
     sources,
@@ -441,10 +465,10 @@ async function scoutByPdf(pdfUrl: string, topic: string, language: string): Prom
 
 // ─── Workflow: Image ─────────────────────────────────────────────────────────
 
-async function scoutByImage(imageUrl: string, topic: string, language: string): Promise<ScoutOutput> {
+async function scoutByImage(imageUrl: string, topic: string, language: string, modelName: string): Promise<ScoutOutput> {
   const topicForSearch = topic || "image analysis";
-  const { rawSources, queries, method } = await discoverSources(topicForSearch, language);
-  const sources = await scoreSources(topicForSearch, rawSources);
+  const { rawSources, queries, method } = await discoverSources(topicForSearch, language, modelName);
+  const sources = await scoreSources(topicForSearch, rawSources, modelName);
   const meta: any = (sources as any)._meta || {};
   return {
     sources,
@@ -491,7 +515,7 @@ Deno.serve(async (req) => {
     }
 
     const body = await req.json().catch(() => ({}));
-    const { run_id } = body;
+    const { run_id, model_override } = body;
     if (!run_id) {
       return new Response(JSON.stringify({ error: "run_id is required" }), {
         status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -509,16 +533,19 @@ Deno.serve(async (req) => {
       status: "running", started_at: new Date().toISOString(),
     });
 
+    // Select resolved model
+    const selectedModel = selectModelForAgent(AGENT_KEY, model_override);
+
     // Route based on attached input
     let output: ScoutOutput;
     if (payload.image_url) {
-      output = await scoutByImage(payload.image_url, topic, language);
+      output = await scoutByImage(payload.image_url, topic, language, selectedModel);
     } else if (payload.pdf_url) {
-      output = await scoutByPdf(payload.pdf_url, topic, language);
+      output = await scoutByPdf(payload.pdf_url, topic, language, selectedModel);
     } else if (payload.url) {
-      output = await scoutByUrl(payload.url, topic, language);
+      output = await scoutByUrl(payload.url, topic, language, selectedModel);
     } else {
-      output = await scoutByTopic(topic, language);
+      output = await scoutByTopic(topic, language, selectedModel);
     }
 
     // Cap sources
