@@ -1,96 +1,66 @@
-# LADtoday 50-Agent Swarm — Phased Implementation Plan
 
-## Reality check first
+# Plan — Agent 01 (Scout) Real Source Discovery
 
-Your two plan documents (~3,500 lines) describe a system originally architected for **Python + FastAPI + Railway + WordPress + Lobster Trap proxy** with **50 agents**. This project is **React + Supabase Edge Functions + Gemini**, with several pieces of the original 10-agent plan already partially built (articles, scrapers, FB pages, AI rewrite, captions).
+## Goal
+Upgrade Scout so it behaves like a real research assistant: take a humanly-worded prompt (or URL/PDF/image) and return a list of **real, fetched** sources from the open web — not Gemini-imagined sources. Everything downstream (agents 02–50, publish, FB) stays untouched.
 
-I will adapt — not literally translate — the plan onto your existing stack. That means:
+## Guardrails
+- Do **not** touch the existing scraper / rewrite / publish / Facebook flow (`/admin/scraper-sources`, `auto-rewrite`, `auto-post-facebook`, etc.).
+- Do **not** modify other agent functions, orchestrator DAG, or DB schema (besides `pipeline_runs.input_payload` which already stores `{url?, pdf?, image?}`).
+- Only edit: `supabase/functions/scout/index.ts`, the Pipeline tab's `NewRunForm` in `src/pages/AdminPipeline.tsx`, and add one small storage bucket if needed for uploads.
 
-- Every "agent" = one Supabase Edge Function (Deno/TS), not a Python class.
-- "FastAPI orchestrator" = one `pipeline-orchestrator` edge function + a `pipeline_runs` table acting as the shared state bus.
-- "Lobster Trap proxy" = a TypeScript wrapper around the existing `_shared/gemini.ts` that logs every call to a `lobstertrap_audit` table and runs cheap heuristic checks (no external proxy container).
-- "WordPress publish" = your existing `articles` table + the public site (you don't run WordPress).
-- "Facebook publish" = the existing `auto-post-facebook` / `manual-post-facebook` functions.
-- All UI lives under `/admin` — no public-facing changes.
+## What Scout will do (new behavior)
 
-**50 agents end-to-end in one turn is not realistic.** Edge function deploys, schema migrations, and admin UI for 50 distinct workflows is multi-day work even on a fast loop. I'm proposing 5 phases. After each phase you can run/test, then approve the next.
+### 1. Input normalization
+The orchestrator already accepts `input_type` + `input_payload`. Scout will read:
+- `topic` — free-text prompt ("tell me what's happening with Pakistan fintech this week")
+- `input_payload.url` — single URL
+- `input_payload.pdf_url` — uploaded PDF in Supabase Storage
+- `input_payload.image_url` — uploaded image (→ sets `image_mode=true` for Vision-16)
 
----
+### 2. Real source discovery (replaces "Gemini imagines sources")
+For **topic** input:
+1. **Query expansion** — Gemini Flash turns the human prompt into 3–5 focused search queries (e.g. "Pakistan fintech 2026", "SBP digital wallet license 2026", "Easypaisa JazzCash growth").
+2. **Web search** — call **Firecrawl `/v2/search`** (already documented in context; connect via `standard_connectors--connect` for `firecrawl`). For each query, request top ~5 results with `scrapeOptions: { formats: ['markdown'] }` so we get titles, URLs, snippets, and full markdown bodies in one call.
+   - Fallback: if Firecrawl key not configured, use Gemini with Google Search grounding (`tools: [{google_search: {}}]`) to get real URLs, then fetch each with the existing `fetchUrlContent` helper.
+3. **Merge + dedupe** — pool all results, dedupe by domain + cosine similarity (existing logic stays).
+4. **Score** — Gemini Flash, given the real titles + first 1.5k chars of each, fills in `credibility_score`, `recency_score`, `relevance_score`, `key_facts`, `sentiment` per source. This replaces the current "make up a realistic source" prompt.
 
-## Phase 0 — Foundation (this turn)
+For **URL** input: fetch via Firecrawl scrape (handles JS-rendered pages, anti-bot) and **also** run a small topic search on the page's title to add 2–3 supporting sources.
 
-Goal: stand up the shared infrastructure every agent depends on. No agent logic yet — just the rails.
+For **PDF** input: download from storage, extract text via `unpdf` (npm, Deno-friendly), treat extracted text as one source, then supplement with topic search using the PDF's inferred title.
 
-### Schema migration
-- `pipeline_runs` — one row per "run topic → publish" job. Columns: `id`, `user_id`, `topic`, `input_type`, `input_payload jsonb`, `status` (pending/running/completed/failed), `current_phase`, `total_tokens`, `estimated_cost_usd`, `duration_ms`, `created_at`, `updated_at`, plus a JSONB `agent_states` map of `{agent_key: {status, started_at, finished_at, tokens, output_ref, error}}`.
-- `agent_outputs` — per-agent structured outputs keyed by `(run_id, agent_key)`, JSONB body, so the orchestrator can pass results without bloating `pipeline_runs`.
-- `lobstertrap_audit` — every Gemini call: `run_id`, `agent_key`, `prompt_preview`, `prompt_tokens`, `response_tokens`, `injection_detected`, `pii_detected`, `risk_score`, `action_taken`, `verdict`, `latency_ms`.
-- `agent_registry` — seeded with all 50 agents: `key`, `name`, `phase`, `depends_on text[]`, `model`, `enabled bool`, `order_index`. Lets admins toggle agents on/off without code changes.
-- Realtime enabled on `pipeline_runs` and `lobstertrap_audit` so the admin UI gets live updates.
-- All tables admin-only RLS via existing `has_role(auth.uid(), 'admin')` pattern.
+For **image** input: store URL, flag `image_mode=true`, run topic search on the user's prompt to gather sources around the image (Vision-16 later analyzes the image itself).
 
-### Shared edge-function utilities
-- `_shared/gemini.ts` — wrap existing `geminiText` / `geminiJson` with a `guardedGemini(runId, agentKey, opts)` helper that:
-  - logs to `lobstertrap_audit`,
-  - runs cheap heuristic injection/PII checks (regex for "ignore previous", emails, phone numbers, Pakistani CNIC pattern),
-  - applies a per-run rate limiter,
-  - returns the same shape so existing functions can opt in incrementally.
-- `_shared/pipeline.ts` — helpers: `createRun`, `markAgentRunning`, `markAgentDone`, `markAgentFailed`, `readAgentOutput`, `writeAgentOutput`, `nextRunnableAgents(runId)` (topological lookup against `agent_registry`).
+### 3. Output shape
+Unchanged — same `ScoutOutput` interface, so Agent 02 (Intelligence) and the rest of the DAG keep working.
 
-### Orchestrator edge function — `pipeline-orchestrator`
-- POST `{ topic, input_type, input_payload, brand_voice, language, enabled_agents? }` → creates a `pipeline_runs` row and kicks the DAG.
-- Internal loop: read registry → find runnable agents (deps satisfied + enabled) → invoke their edge functions in parallel via `supabase.functions.invoke` → wait → repeat until terminal state.
-- Idempotent: re-invoking on a partially failed run resumes from the failed node.
+## UI change — Pipeline tab only
+Replace the current `NewRunForm` Textarea with:
+- A larger prompt textarea ("Ask in plain language — what should we write about?")
+- An "Attach" row with three buttons: **URL** (text field), **PDF** (file upload to `pipeline-inputs` bucket), **Image** (file upload, same bucket)
+- Same Brand voice / Language selects
+- "Run pipeline" button → sends `{ topic, input_type, input_payload: { url?, pdf_url?, image_url? } }` to `pipeline-orchestrator`
 
-### Admin UI shell — `/admin/pipeline`
-- One new sidebar entry "Pipeline" (icon: `Workflow`).
-- Page: "New Run" form (topic, input type, brand voice, language, agent toggles grouped by phase) + live "Runs" table.
-- Run detail view: 50-node graph rendered as a phase-grouped list with status chips, live updates via Supabase realtime, click a node → drawer with prompt/response/tokens/risk score.
-- Lobster Trap tab on the run detail showing audit rows for that run.
+A small "Sources found" preview card appears under the run as soon as Scout completes (reads from `agent_outputs` where `agent_key='scout'`), showing real URLs + domains so the user can sanity-check before later agents run.
 
-**Deliverables this phase:** migrations, shared helpers, orchestrator, registry seed for all 50 agents (most marked `enabled=false`), admin UI shell that can run an empty pipeline and show "no agents enabled".
+## Connector / secrets
+- Ask user to connect **Firecrawl** (preferred — best for search + scrape in one call, handles anti-bot).
+- `GEMINI_API_KEY` already present → fallback path works without Firecrawl.
+- New storage bucket `pipeline-inputs` (private) for PDF/image uploads.
 
----
+## Files to change
+1. `supabase/functions/scout/index.ts` — replace `scoutByTopic` with `searchAndAnalyze` (Firecrawl-first, Gemini-grounding fallback), add `scoutByPdf`, keep `scoutByUrl` but route through Firecrawl scrape.
+2. `src/pages/AdminPipeline.tsx` — upgrade `NewRunForm` (URL/PDF/image attachments + upload to storage), add small "Scout sources" preview block in `RunDetail`.
+3. New migration — create private storage bucket `pipeline-inputs` with RLS (admin-only insert, signed URLs for read).
 
-## Phase 1 — Discover wing (agents 01–07)
+## Out of scope (explicitly)
+- No change to agents 02–50.
+- No change to orchestrator DAG, registry, or `/admin/scraper-sources` legacy flow.
+- No change to publish or Facebook posting.
 
-Adapt existing scrape-articles into Scout (01). New edge functions for Intelligence (02), Trend Forecaster (03), Competitor Intel (04), Audience Listener (05), News Wire (06), Research (07). Each is ~100–200 lines of TS calling `guardedGemini`. Enable all 7 in registry, wire into orchestrator, test end-to-end with topic input.
-
-## Phase 2 — Analyze wing (agents 08–14)
-
-Fact Checker, Bias Detector, Story Arc, Quote Extractor, Tone Calibrator, Localization, Headline Optimizer. Pure Gemini-JSON agents — small edge functions, parallelizable. Add a "Story Brief" preview panel to the admin run UI.
-
-## Phase 3 — Create + Multimedia wings (agents 15–31)
-
-Refactor existing `rewrite-article` / `auto-rewrite` into Rewrite (15). Existing `generate-caption` becomes the seed for Short Form (26). New agents: SEO, Readability, Internal Linking, Schema, Excerpt, Creative, Infographic, Podcast Script, Video Script, Thread, Carousel, Newsletter, WhatsApp, Data Viz. Many can be implemented as templates calling Gemini once each. Output lands on `articles` table + new `article_assets` table (jsonb per asset type).
-
-## Phase 4 — Distribute + Monetize wings (agents 32–45)
-
-Account Manager + Publish wrap your existing `articles` insert and `auto-post-facebook` / `manual-post-facebook`. Timing Intelligence, Hashtag Strategy, Cross-Platform Adapter, Community, Influencer Radar, Performance Predictor, Syndication. Then monetize: AdSense Optimizer, Affiliate Detector, Lead Magnet, Content Calendar, Revenue Intelligence. WordPress publishing is replaced by "publish to own site" since you don't run WP.
-
-## Phase 5 — Operate wing (agents 46–50) + polish
-
-Analytics (wraps the existing newsletter/view-count infra), Guardian (final audit pass + verdict APPROVED/REVIEW/REJECTED gate on publish), Content Refresh (scans aging articles), Brand Safety, Knowledge Base (vector-ish store of past runs for cross-article context). Polish: cost dashboard, demo mode, cached "Pakistan fintech growth" run for the hackathon demo.
-
----
-
-## Technical notes (for reference)
-
-- **No Python, no FastAPI, no Railway, no Lobster Trap container** — all replaced by edge functions + a `lobstertrap_audit` table. The "policy YAML" becomes a `settings` row (`key='guardian_policy'`) that the Guardian function reads.
-- **No WordPress** — "publish" writes to your existing `articles` table and (optionally) queues a Facebook post. If you later want true WP publishing, that's an add-on agent with credentials in secrets.
-- **Gemini key** — already in secrets as `GEMINI_API_KEY` from the previous turn. All agents go through `_shared/gemini.ts` → `guardedGemini`. The Lovable AI Gateway path is bypassed entirely (you wanted that).
-- **Cost control** — `agent_registry.enabled` lets you turn off the expensive Pro-tier agents (Intelligence, Rewrite) and run cheaper Flash-only pipelines during testing. Cost estimate accumulates per run.
-- **Concurrency** — orchestrator invokes independent agents in parallel via `Promise.allSettled`. Edge function cold-start per agent is the main latency floor; full 50-agent run is realistically 60–120s.
-- **Demo mode** — Phase 5 adds a "mock" toggle that returns pre-canned outputs for the demo topic so you never fail at the judging table on rate limits.
-
----
-
-## What I need from you
-
-1. **Confirm phased delivery.** I'll ship Phase 0 in this turn (foundation only — schema, orchestrator, admin shell, registry of all 50 agents marked disabled). Then ask you to test before Phase 1.
-2. **Confirm WordPress is dropped** in favor of publishing to your existing site (you don't run WP).
-3. **Confirm Lobster Trap = TS heuristic logger** (not the real Veea container — that requires Python + a side container you can't host on Lovable).
-
-If you want all 50 agents in one shot regardless: that won't fit in one turn and will produce broken half-deployed functions. I will not do that.
-
-Reply "go" to ship Phase 0, or tell me which phase to start with.
+## Acceptance test
+1. On `/admin/pipeline`, type "what's the latest on Pakistan's solar net-metering policy" → Run.
+2. Within ~10s, Scout's drawer shows 5 sources with **real reachable URLs** (Dawn, Tribune, SBP, etc.), real titles, and 300-word summaries pulled from those pages.
+3. Existing downstream agents continue exactly as before; final article publishes to web (and FB if enabled).
+4. Repeat with a URL, then a PDF, then an image — each produces a valid Scout output and the pipeline continues.

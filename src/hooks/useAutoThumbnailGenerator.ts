@@ -30,7 +30,7 @@ export function useAutoThumbnailGenerator(isAdmin: boolean) {
         // Find one article that has been rewritten but lacks a thumbnail
         const { data: articles, error } = await supabase
           .from("articles")
-          .select("id, title, ai_title, image")
+          .select("id, title, image")
           .eq("ai_rewrite_status", "completed")
           .is("ai_thumbnail_url", null)
           .not("image", "is", null)
@@ -51,7 +51,7 @@ export function useAutoThumbnailGenerator(isAdmin: boolean) {
         const article = articles[0];
         console.log(`🤖 AutoThumbnail: Generating for "${article.title}"...`);
 
-        const titleText = article.ai_title || article.title;
+        const titleText = article.title;
         const blob = await generateThumbnailCanvas(article.image, titleText);
         const url = await uploadThumbnailBlob(article.id, blob);
 

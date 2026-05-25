@@ -72,7 +72,7 @@ const AdminScraperSources = () => {
     setSourcesLoading(true);
     const { data, error } = await supabase.from("scraper_sources").select("*").order("created_at", { ascending: true });
     if (error) toast.error("Failed to load sources");
-    else setSources((data as ScraperSource[]) || []);
+    else setSources(((data as unknown) as ScraperSource[]) || []);
     setSourcesLoading(false);
   };
 

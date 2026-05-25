@@ -118,43 +118,93 @@ function NewRunForm({ onStarted }: { onStarted: (id: string) => void }) {
   const [topic, setTopic] = useState("");
   const [voice, setVoice] = useState("professional");
   const [language, setLanguage] = useState("english");
+  const [url, setUrl] = useState("");
+  const [pdfFile, setPdfFile] = useState<File | null>(null);
+  const [imageFile, setImageFile] = useState<File | null>(null);
   const [busy, setBusy] = useState(false);
 
+  const uploadToBucket = async (file: File, prefix: string): Promise<string | null> => {
+    const { data: { user } } = await supabase.auth.getUser();
+    const path = `${user?.id || "anon"}/${prefix}-${Date.now()}-${file.name.replace(/[^a-zA-Z0-9._-]/g, "_")}`;
+    const { error } = await supabase.storage.from("pipeline-inputs").upload(path, file, { upsert: false });
+    if (error) { toast({ title: "Upload failed", description: error.message, variant: "destructive" }); return null; }
+    const { data: signed } = await supabase.storage.from("pipeline-inputs").createSignedUrl(path, 60 * 60 * 24);
+    return signed?.signedUrl || null;
+  };
+
   const start = async () => {
-    if (!topic.trim()) { toast({ title: "Enter a topic" }); return; }
-    setBusy(true);
-    const { data, error } = await supabase.functions.invoke("pipeline-orchestrator", {
-      body: { action: "start", topic, brand_voice: voice, language },
-    });
-    setBusy(false);
-    if (error || !data?.run_id) {
-      toast({ title: "Failed to start", description: error?.message || data?.error, variant: "destructive" });
-      return;
+    if (!topic.trim() && !url.trim() && !pdfFile && !imageFile) {
+      toast({ title: "Enter a topic or attach a URL/PDF/image" }); return;
     }
-    setTopic("");
-    onStarted(data.run_id);
+    setBusy(true);
+    try {
+      const input_payload: Record<string, string> = {};
+      let input_type = "topic";
+      if (url.trim()) { input_payload.url = url.trim(); input_type = "url"; }
+      if (pdfFile) {
+        const u = await uploadToBucket(pdfFile, "pdf");
+        if (!u) { setBusy(false); return; }
+        input_payload.pdf_url = u; input_type = "pdf";
+      }
+      if (imageFile) {
+        const u = await uploadToBucket(imageFile, "image");
+        if (!u) { setBusy(false); return; }
+        input_payload.image_url = u; input_type = "image";
+      }
+      const finalTopic = topic.trim() || (url.trim() || (pdfFile?.name ?? imageFile?.name ?? "untitled"));
+      const { data, error } = await supabase.functions.invoke("pipeline-orchestrator", {
+        body: { action: "start", topic: finalTopic, brand_voice: voice, language, input_type, input_payload },
+      });
+      if (error || !data?.run_id) {
+        toast({ title: "Failed to start", description: error?.message || data?.error, variant: "destructive" });
+        return;
+      }
+      setTopic(""); setUrl(""); setPdfFile(null); setImageFile(null);
+      onStarted(data.run_id);
+    } finally { setBusy(false); }
   };
 
   return (
     <div className="border border-border rounded-lg p-4 space-y-3 bg-card">
       <div>
-        <Label className="text-xs">Topic</Label>
+        <Label className="text-xs">Ask in plain language</Label>
         <Textarea
           value={topic}
           onChange={(e) => setTopic(e.target.value)}
-          placeholder='e.g. "Pakistan fintech growth in 2026"'
-          rows={2}
+          placeholder='e.g. "What is happening with Pakistan fintech this week — give me an article angle"'
+          rows={3}
           className="mt-1"
         />
       </div>
+
+      <div className="space-y-2 border-t border-border pt-3">
+        <Label className="text-[10px] uppercase tracking-wide text-muted-foreground">Optional: attach a source</Label>
+        <Input
+          type="url"
+          value={url}
+          onChange={(e) => setUrl(e.target.value)}
+          placeholder="Paste a URL (article, report, page)"
+          className="h-9 text-xs"
+        />
+        <div className="grid grid-cols-2 gap-2">
+          <label className="text-xs border border-dashed border-border rounded-md px-2 py-1.5 cursor-pointer hover:bg-muted/40 truncate">
+            <input type="file" accept="application/pdf" className="hidden"
+              onChange={(e) => setPdfFile(e.target.files?.[0] || null)} />
+            {pdfFile ? `📄 ${pdfFile.name}` : "Attach PDF"}
+          </label>
+          <label className="text-xs border border-dashed border-border rounded-md px-2 py-1.5 cursor-pointer hover:bg-muted/40 truncate">
+            <input type="file" accept="image/*" className="hidden"
+              onChange={(e) => setImageFile(e.target.files?.[0] || null)} />
+            {imageFile ? `🖼 ${imageFile.name}` : "Attach Image"}
+          </label>
+        </div>
+      </div>
+
       <div className="grid grid-cols-2 gap-3">
         <div>
           <Label className="text-xs">Brand voice</Label>
-          <select
-            value={voice}
-            onChange={(e) => setVoice(e.target.value)}
-            className="mt-1 w-full h-9 rounded-md border border-input bg-background px-3 text-sm"
-          >
+          <select value={voice} onChange={(e) => setVoice(e.target.value)}
+            className="mt-1 w-full h-9 rounded-md border border-input bg-background px-3 text-sm">
             <option value="professional">Professional</option>
             <option value="casual">Casual</option>
             <option value="authoritative">Authoritative</option>
@@ -162,11 +212,8 @@ function NewRunForm({ onStarted }: { onStarted: (id: string) => void }) {
         </div>
         <div>
           <Label className="text-xs">Language</Label>
-          <select
-            value={language}
-            onChange={(e) => setLanguage(e.target.value)}
-            className="mt-1 w-full h-9 rounded-md border border-input bg-background px-3 text-sm"
-          >
+          <select value={language} onChange={(e) => setLanguage(e.target.value)}
+            className="mt-1 w-full h-9 rounded-md border border-input bg-background px-3 text-sm">
             <option value="english">English</option>
             <option value="urdu">Urdu</option>
             <option value="roman_urdu">Roman Urdu</option>
@@ -177,6 +224,57 @@ function NewRunForm({ onStarted }: { onStarted: (id: string) => void }) {
         <Play className="w-4 h-4 mr-2" />
         {busy ? "Starting…" : "Run pipeline"}
       </Button>
+    </div>
+  );
+}
+
+// ---------- Scout sources preview ----------
+function ScoutSourcesPreview({ runId }: { runId: string }) {
+  const [output, setOutput] = useState<any>(null);
+  useEffect(() => {
+    const load = async () => {
+      const { data } = await supabase.from("agent_outputs")
+        .select("output, status").eq("run_id", runId).eq("agent_key", "scout").maybeSingle();
+      setOutput(data?.output || null);
+    };
+    load();
+    const ch = supabase.channel(`scout_${runId}`)
+      .on("postgres_changes", { event: "*", schema: "public", table: "agent_outputs", filter: `run_id=eq.${runId}` }, () => load())
+      .subscribe();
+    return () => { supabase.removeChannel(ch); };
+  }, [runId]);
+
+  if (!output?.sources?.length) return null;
+  return (
+    <div className="border border-border rounded-lg p-3 bg-card">
+      <div className="text-xs font-medium mb-2 flex items-center gap-2">
+        <span>Scout — {output.sources.length} real sources</span>
+        {output.discovery_method && (
+          <Badge variant="outline" className="text-[10px]">{output.discovery_method}</Badge>
+        )}
+      </div>
+      <ul className="space-y-1.5">
+        {output.sources.slice(0, 7).map((s: any, i: number) => (
+          <li key={i} className="text-xs flex items-start gap-2">
+            <span className="text-muted-foreground tabular-nums">{(i + 1).toString().padStart(2, "0")}</span>
+            <div className="flex-1 min-w-0">
+              <a href={s.url} target="_blank" rel="noreferrer" className="underline hover:text-foreground truncate block">
+                {s.title || s.url}
+              </a>
+              <div className="text-[10px] text-muted-foreground flex items-center gap-2">
+                <span>{s.source_domain}</span>
+                <span>· cred {Number(s.credibility_score || 0).toFixed(2)}</span>
+                <span>· rel {Number(s.relevance_score || 0).toFixed(2)}</span>
+              </div>
+            </div>
+          </li>
+        ))}
+      </ul>
+      {output.recommended_angle && (
+        <div className="mt-2 pt-2 border-t border-border text-[11px]">
+          <span className="text-muted-foreground">Recommended angle:</span> {output.recommended_angle}
+        </div>
+      )}
     </div>
   );
 }
@@ -298,7 +396,10 @@ function RunDetail({ runId }: { runId: string }) {
         </div>
       </div>
 
+      <ScoutSourcesPreview runId={runId} />
+
       <Tabs defaultValue="agents">
+
         <TabsList>
           <TabsTrigger value="agents">Agents</TabsTrigger>
           <TabsTrigger value="lobstertrap">Lobster Trap ({audit.length})</TabsTrigger>
