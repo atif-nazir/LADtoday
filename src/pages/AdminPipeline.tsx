@@ -15,6 +15,7 @@ import {
 import { useIsAdmin } from "@/hooks/useAdmin";
 import { Menu, Play, Square, RefreshCw, Workflow, Activity, Server, DollarSign, CalendarDays, TrendingUp, Users, HardDrive, Bell } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
+import { ModelSelector } from "@/components/ModelSelector";
 import { PipelineHealthTab } from "@/components/pipeline/PipelineHealthTab";
 import { SystemHealthTab } from "@/components/pipeline/SystemHealthTab";
 import { CostsTab } from "@/components/pipeline/CostsTab";
@@ -121,6 +122,8 @@ function NewRunForm({ onStarted }: { onStarted: (id: string) => void }) {
   const [url, setUrl] = useState("");
   const [pdfFile, setPdfFile] = useState<File | null>(null);
   const [imageFile, setImageFile] = useState<File | null>(null);
+  const [modelOverrides, setModelOverrides] = useState<Record<string, string>>({});
+  const [showModelSelector, setShowModelSelector] = useState(false);
   const [busy, setBusy] = useState(false);
 
   const uploadToBucket = async (file: File, prefix: string): Promise<string | null> => {
@@ -153,19 +156,21 @@ function NewRunForm({ onStarted }: { onStarted: (id: string) => void }) {
       }
       const finalTopic = topic.trim() || (url.trim() || (pdfFile?.name ?? imageFile?.name ?? "untitled"));
       const { data, error } = await supabase.functions.invoke("pipeline-orchestrator", {
-        body: { action: "start", topic: finalTopic, brand_voice: voice, language, input_type, input_payload },
+        body: { action: "start", topic: finalTopic, brand_voice: voice, language, input_type, input_payload, model_overrides: modelOverrides },
       });
       if (error || !data?.run_id) {
         toast({ title: "Failed to start", description: error?.message || data?.error, variant: "destructive" });
         return;
       }
-      setTopic(""); setUrl(""); setPdfFile(null); setImageFile(null);
+      setTopic(""); setUrl(""); setPdfFile(null); setImageFile(null); setModelOverrides({});
       onStarted(data.run_id);
     } finally { setBusy(false); }
   };
 
+  const hasModelOverrides = Object.keys(modelOverrides).length > 0;
+
   return (
-    <div className="border border-border rounded-lg p-4 space-y-3 bg-card">
+    <div className="space-y-3">
       <div>
         <Label className="text-xs">Ask in plain language</Label>
         <Textarea
@@ -220,6 +225,37 @@ function NewRunForm({ onStarted }: { onStarted: (id: string) => void }) {
           </select>
         </div>
       </div>
+
+      {/* Model Configuration Toggle */}
+      <div className="border border-border rounded-lg p-3 bg-card flex items-center justify-between">
+        <div className="flex-1">
+          <div className="font-medium text-sm">Model Configuration</div>
+          <div className="text-xs text-muted-foreground mt-0.5">
+            {hasModelOverrides 
+              ? `${Object.keys(modelOverrides).length} agent overrides active` 
+              : "Use default models (free tier optimized)"}
+          </div>
+        </div>
+        <Button 
+          variant={hasModelOverrides ? "default" : "outline"} 
+          size="sm"
+          onClick={() => setShowModelSelector(!showModelSelector)}
+        >
+          {showModelSelector ? "Hide" : "Configure"}
+        </Button>
+      </div>
+
+      {/* Model Selector */}
+      {showModelSelector && (
+        <div className="border border-border rounded-lg p-4 bg-card/50">
+          <ModelSelector 
+            onModelOverridesChange={setModelOverrides}
+            compact={true}
+          />
+        </div>
+      )}
+
+      {/* Run Button */}
       <Button onClick={start} disabled={busy} className="w-full">
         <Play className="w-4 h-4 mr-2" />
         {busy ? "Starting…" : "Run pipeline"}
