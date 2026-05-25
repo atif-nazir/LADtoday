@@ -61,13 +61,20 @@ const DEFAULT_MODELS: Record<string, string> = {
  * @returns The resolved model name to invoke Gemini with
  */
 export function selectModelForAgent(agentKey: string, modelOverride?: Record<string, string>): string {
-  if (modelOverride && modelOverride[agentKey]) {
-    return modelOverride[agentKey];
+  if (modelOverride) {
+    if (modelOverride[agentKey]) {
+      return modelOverride[agentKey];
+    }
+    const normalizedKey = agentKey.replace(/_/g, "-");
+    if (modelOverride[normalizedKey]) {
+      return modelOverride[normalizedKey];
+    }
+    const underscoreKey = agentKey.replace(/-/g, "_");
+    if (modelOverride[underscoreKey]) {
+      return modelOverride[underscoreKey];
+    }
   }
   const normalizedKey = agentKey.replace(/_/g, "-");
-  if (modelOverride && modelOverride[normalizedKey]) {
-    return modelOverride[normalizedKey];
-  }
   return DEFAULT_MODELS[agentKey] || DEFAULT_MODELS[normalizedKey] || "gemini-2.5-flash";
 }
 

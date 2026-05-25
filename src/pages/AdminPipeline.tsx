@@ -293,7 +293,11 @@ function NewRunForm({ onStarted }: { onStarted: (id: string) => void }) {
                   <span className="truncate flex-1 font-medium">{agent.name}</span>
                   <select
                     value={modelOverrides[agent.key] || agent.model}
-                    onChange={(e) => setModelOverrides({ ...modelOverrides, [agent.key]: e.target.value })}
+                    onChange={(e) => {
+                      const newModel = e.target.value;
+                      setModelOverrides({ ...modelOverrides, [agent.key]: newModel });
+                      toast({ title: `${agent.name} set to ${newModel}` });
+                    }}
                     className="h-7 text-[11px] rounded-md border border-input bg-background px-2 py-0"
                   >
                     <option value="gemini-2.5-flash">Gemini 2.5 Flash</option>
