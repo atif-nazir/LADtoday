@@ -255,22 +255,38 @@ function NewRunForm({ onStarted }: { onStarted: (id: string) => void }) {
               <span className="text-[10px] text-muted-foreground group-open:rotate-180 transition-transform">▼</span>
             </summary>
             <div className="mt-2 space-y-2 max-h-60 overflow-y-auto pr-1">
-              <div className="flex items-center justify-between mb-2">
-                <span className="text-[10px] text-muted-foreground">Override models:</span>
-                <button
-                  type="button"
-                  className="text-[10px] border border-border rounded px-2 py-0.5 hover:bg-muted font-medium transition-colors"
-                  onClick={() => {
-                    const overridden = { ...modelOverrides };
-                    Object.keys(overridden).forEach(k => {
-                      overridden[k] = "gemini-2.5-flash";
-                    });
-                    setModelOverrides(overridden);
-                    toast({ title: "All agents set to Flash model" });
-                  }}
-                >
-                  Set All to Flash (Free)
-                </button>
+              <div className="flex flex-col gap-1.5 mb-2 border-b border-border pb-2">
+                <span className="text-[10px] text-muted-foreground font-medium">Quick Presets:</span>
+                <div className="flex flex-wrap gap-1.5">
+                  <button
+                    type="button"
+                    className="text-[10px] border border-border rounded px-2 py-0.5 hover:bg-muted font-medium transition-colors"
+                    onClick={() => {
+                      const overridden = { ...modelOverrides };
+                      Object.keys(overridden).forEach(k => {
+                        overridden[k] = "gemini-2.5-flash";
+                      });
+                      setModelOverrides(overridden);
+                      toast({ title: "All agents set to Gemini 2.5 Flash" });
+                    }}
+                  >
+                    Set All to 2.5 Flash (20 RPD)
+                  </button>
+                  <button
+                    type="button"
+                    className="text-[10px] border border-border rounded px-2 py-0.5 hover:bg-muted font-medium transition-colors bg-accent/30 text-accent-foreground"
+                    onClick={() => {
+                      const overridden = { ...modelOverrides };
+                      Object.keys(overridden).forEach(k => {
+                        overridden[k] = "gemini-3.1-flash-lite";
+                      });
+                      setModelOverrides(overridden);
+                      toast({ title: "All agents set to Gemini 3.1 Flash Lite (500 RPD)" });
+                    }}
+                  >
+                    Set All to 3.1 Flash Lite (500 RPD)
+                  </button>
+                </div>
               </div>
               {registryAgents.filter(a => a.enabled).map((agent) => (
                 <div key={agent.key} className="flex items-center justify-between gap-2 text-xs">
@@ -281,6 +297,10 @@ function NewRunForm({ onStarted }: { onStarted: (id: string) => void }) {
                     className="h-7 text-[11px] rounded-md border border-input bg-background px-2 py-0"
                   >
                     <option value="gemini-2.5-flash">Gemini 2.5 Flash</option>
+                    <option value="gemini-3.5-flash">Gemini 3.5 Flash</option>
+                    <option value="gemini-3-flash">Gemini 3 Flash</option>
+                    <option value="gemini-3.1-flash-lite">Gemini 3.1 Flash Lite</option>
+                    <option value="gemini-2.5-flash-lite">Gemini 2.5 Flash Lite</option>
                     <option value="gemini-2.5-pro">Gemini 2.5 Pro</option>
                   </select>
                 </div>

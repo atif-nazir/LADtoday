@@ -15,6 +15,7 @@ import { insertLog } from "../_shared/logger.ts";
 import {
   writeAgentOutput, readAgentOutput, patchAgentState, loadRun,
 } from "../_shared/pipeline.ts";
+import { selectModelForAgent } from "../_shared/model-config.ts";
 
 const AGENT_KEY = "trend-forecaster";
 const AGENT_NAME = "Trend Forecaster";
@@ -181,7 +182,8 @@ async function analyzeTrend(
   dateStr: string,
   timeStr: string,
   scoutData: any,
-  calibration: Awaited<ReturnType<typeof loadCalibration>>
+  calibration: Awaited<ReturnType<typeof loadCalibration>>,
+  modelName: string
 ): Promise<TrendOutput> {
 
   // Build scout context if available
@@ -313,7 +315,7 @@ Return JSON:
   };
 
   const raw = await geminiJson<any>(prompt, schema, {
-    model: MODEL,
+    model: modelName,
     temperature: 0.65,
     maxOutputTokens: 2048,
   });
@@ -374,7 +376,7 @@ Deno.serve(async (req) => {
       });
     }
 
-    const { run_id } = await req.json().catch(() => ({}));
+    const { run_id, model_override } = await req.json().catch(() => ({}));
     if (!run_id) {
       return new Response(JSON.stringify({ error: "run_id is required" }), {
         status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -406,7 +408,8 @@ Deno.serve(async (req) => {
     console.log(`[${AGENT_NAME}] Calibration: offset=${calibration.calibrationOffset}, accuracy=${calibration.pastAccuracyPct}%, n=${calibration.calibrationSampleSize}`);
 
     // ── Run trend analysis ──
-    const trendData = await analyzeTrend(topic, dateStr, timeStr, scoutData, calibration);
+    const selectedModel = selectModelForAgent(AGENT_KEY, model_override);
+    const trendData = await analyzeTrend(topic, dateStr, timeStr, scoutData, calibration, selectedModel);
 
     const durationMs = Date.now() - startedAt;
 
