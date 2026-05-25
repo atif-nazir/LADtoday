@@ -396,7 +396,10 @@ function RunDetail({ runId }: { runId: string }) {
         </div>
       </div>
 
+      <ScoutSourcesPreview runId={runId} />
+
       <Tabs defaultValue="agents">
+
         <TabsList>
           <TabsTrigger value="agents">Agents</TabsTrigger>
           <TabsTrigger value="lobstertrap">Lobster Trap ({audit.length})</TabsTrigger>
