@@ -19,10 +19,10 @@ import { insertLog } from "../_shared/logger.ts";
 import {
   writeAgentOutput, readAgentOutput, patchAgentState, loadRun,
 } from "../_shared/pipeline.ts";
+import { selectModelForAgent, getModelInfo } from "../_shared/model-config.ts";
 
 const AGENT_KEY = "research";
 const AGENT_NAME = "Research";
-const MODEL = "gemini-2.5-pro"; // Pro: citation accuracy is mission-critical
 
 const supabase = createClient(
   Deno.env.get("SUPABASE_URL")!,
@@ -206,7 +206,8 @@ async function conductResearch(
   scoutSources: any[],
   contentBrief: string,
   topicCategory: string,
-  learning: Awaited<ReturnType<typeof loadResearchLearning>>
+  learning: Awaited<ReturnType<typeof loadResearchLearning>>,
+  selectedModel: string
 ): Promise<ResearchOutput> {
 
   const factsToVerify = keyFacts.slice(0, 6).map((f: any, i: number) =>
@@ -375,7 +376,7 @@ Return JSON:
   };
 
   const raw = await geminiJson<any>(prompt, schema, {
-    model: MODEL,
+    model: selectedModel,
     temperature: 0.35,  // Very low: accuracy over creativity for citations
     maxOutputTokens: 6144,
   });
@@ -437,7 +438,7 @@ Deno.serve(async (req) => {
       });
     }
 
-    const { run_id } = await req.json().catch(() => ({}));
+    const { run_id, model_override } = await req.json().catch(() => ({}));
     if (!run_id) {
       return new Response(JSON.stringify({ error: "run_id is required" }), {
         status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -447,6 +448,7 @@ Deno.serve(async (req) => {
     const run = await loadRun(run_id);
     const topic = run.topic || "";
     const topicCategory = inferTopicCategory(topic);
+    const selectedModel = selectModelForAgent(AGENT_KEY, model_override);
 
     console.log(`[${AGENT_NAME}] Starting run=${run_id} topic="${topic}" category=${topicCategory}`);
     await insertLog("ai", AGENT_KEY, `${AGENT_NAME} started`, `topic: ${topic}`, { run_id });
@@ -479,7 +481,7 @@ Deno.serve(async (req) => {
 
     // ── Run research (low temperature — citation accuracy critical) ──
     const researchData = await conductResearch(
-      topic, keyFacts, scoutSources, contentBrief, topicCategory, learning
+      topic, keyFacts, scoutSources, contentBrief, topicCategory, learning, selectedModel
     );
 
     const durationMs = Date.now() - startedAt;

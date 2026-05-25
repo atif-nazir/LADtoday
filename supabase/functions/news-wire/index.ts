@@ -15,10 +15,10 @@ import { insertLog } from "../_shared/logger.ts";
 import {
   writeAgentOutput, readAgentOutput, patchAgentState, loadRun,
 } from "../_shared/pipeline.ts";
+import { selectModelForAgent, getModelInfo } from "../_shared/model-config.ts";
 
 const AGENT_KEY = "news-wire";
 const AGENT_NAME = "News Wire";
-const MODEL = "gemini-2.5-flash"; // Flash: speed is critical for breaking news
 
 const supabase = createClient(
   Deno.env.get("SUPABASE_URL")!,
@@ -169,7 +169,8 @@ async function monitorNewsWire(
   dateStr: string,
   timeStr: string,
   scoutData: any,
-  learning: Awaited<ReturnType<typeof loadWireLearning>>
+  learning: Awaited<ReturnType<typeof loadWireLearning>>,
+  selectedModel: string
 ): Promise<NewsWireOutput> {
 
   // Build context from scout data
@@ -285,7 +286,7 @@ Return JSON:
   };
 
   const raw = await geminiJson<any>(prompt, schema, {
-    model: MODEL,
+    model: selectedModel,
     temperature: 0.45, // Low temp: factual news classification
     maxOutputTokens: 2500,
   });
@@ -337,7 +338,7 @@ Deno.serve(async (req) => {
       });
     }
 
-    const { run_id } = await req.json().catch(() => ({}));
+    const { run_id, model_override } = await req.json().catch(() => ({}));
     if (!run_id) {
       return new Response(JSON.stringify({ error: "run_id is required" }), {
         status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -347,6 +348,7 @@ Deno.serve(async (req) => {
     const run = await loadRun(run_id);
     const topic = run.topic || "";
     const topicCategory = inferTopicCategory(topic);
+    const selectedModel = selectModelForAgent(AGENT_KEY, model_override);
     const now = new Date();
     const dateStr = now.toISOString().split("T")[0];
     const timeStr = now.toLocaleTimeString("en-US", { timeZone: "Asia/Karachi", hour12: true });
@@ -368,7 +370,7 @@ Deno.serve(async (req) => {
     console.log(`[${AGENT_NAME}] Calibration: threshold=${learning.calibratedUrgencyThreshold}, false_alarm=${(learning.falseAlarmRate * 100).toFixed(0)}%, n=${learning.sampleSize}`);
 
     // Monitor news wire
-    const wireData = await monitorNewsWire(topic, dateStr, timeStr, scoutData, learning);
+    const wireData = await monitorNewsWire(topic, dateStr, timeStr, scoutData, learning, selectedModel);
 
     const durationMs = Date.now() - startedAt;
 

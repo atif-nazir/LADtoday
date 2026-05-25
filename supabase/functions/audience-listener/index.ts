@@ -15,10 +15,10 @@ import { insertLog } from "../_shared/logger.ts";
 import {
   writeAgentOutput, readAgentOutput, patchAgentState, loadRun,
 } from "../_shared/pipeline.ts";
+import { selectModelForAgent, getModelInfo } from "../_shared/model-config.ts";
 
 const AGENT_KEY = "audience-listener";
 const AGENT_NAME = "Audience Listener";
-const MODEL = "gemini-2.5-flash"; // Flash: audience profiling needs breadth
 
 const supabase = createClient(
   Deno.env.get("SUPABASE_URL")!,
@@ -188,7 +188,8 @@ async function analyzeAudience(
   learning: Awaited<ReturnType<typeof loadAudienceLearning>>,
   brandVoice: string,
   language: string,
-  topicCategory: string
+  topicCategory: string,
+  selectedModel: string
 ): Promise<AudienceOutput> {
 
   const scoutContext = scoutData
@@ -356,7 +357,7 @@ Return JSON:
   };
 
   const raw = await geminiJson<any>(prompt, schema, {
-    model: MODEL,
+    model: selectedModel,
     temperature: 0.65,
     maxOutputTokens: 4096,
   });
@@ -417,7 +418,7 @@ Deno.serve(async (req) => {
       });
     }
 
-    const { run_id } = await req.json().catch(() => ({}));
+    const { run_id, model_override } = await req.json().catch(() => ({}));
     if (!run_id) {
       return new Response(JSON.stringify({ error: "run_id is required" }), {
         status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -429,6 +430,7 @@ Deno.serve(async (req) => {
     const brandVoice = run.brand_voice || "professional";
     const language = run.language || "english";
     const topicCategory = inferTopicCategory(topic);
+    const selectedModel = selectModelForAgent(AGENT_KEY, model_override);
 
     console.log(`[${AGENT_NAME}] Starting run=${run_id} topic="${topic}"`);
     await insertLog("ai", AGENT_KEY, `${AGENT_NAME} started`, `topic: ${topic}`, { run_id });
@@ -447,7 +449,7 @@ Deno.serve(async (req) => {
     console.log(`[${AGENT_NAME}] Learning: ${learning.sampleSize} runs | top pain: "${learning.highEngagementPainPoints[0] || "none"}" | top emotion: "${learning.highShareEmotions[0] || "none"}"`);
 
     // Run audience analysis
-    const audienceData = await analyzeAudience(topic, scoutData, learning, brandVoice, language, topicCategory);
+    const audienceData = await analyzeAudience(topic, scoutData, learning, brandVoice, language, topicCategory, selectedModel);
 
     const durationMs = Date.now() - startedAt;
 

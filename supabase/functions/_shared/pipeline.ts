@@ -203,7 +203,7 @@ const SHORT_TO_FN: Record<string, string> = {
   "knowledge-base": "knowledge-base",
 };
 
-export async function invokeAgent(agentKey: string, runId: string) {
+export async function invokeAgent(agentKey: string, runId: string, modelOverrides?: Record<string, string>) {
   // Resolve function name: check short-key map first, then try direct format
   let fnName = SHORT_TO_FN[agentKey];
   if (!fnName) {
@@ -211,13 +211,17 @@ export async function invokeAgent(agentKey: string, runId: string) {
     fnName = agentKey.startsWith("agent-") ? agentKey : `agent-${agentKey.replaceAll("_", "-")}`;
   }
   const url = `${Deno.env.get("SUPABASE_URL")}/functions/v1/${fnName}`;
+  const body: any = { run_id: runId };
+  if (modelOverrides) {
+    body.model_override = modelOverrides;
+  }
   const res = await fetch(url, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
       "Authorization": `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}`,
     },
-    body: JSON.stringify({ run_id: runId }),
+    body: JSON.stringify(body),
   });
   if (!res.ok) {
     const text = await res.text();

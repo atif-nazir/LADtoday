@@ -165,10 +165,11 @@ async function runWave(runId: string) {
     for (const a of ready) { states[a.key] = { status: "running", started_at: new Date().toISOString() }; }
     await updateRun(runId, { status: "running", current_phase: ready[0].phase, agent_states: states });
 
+    const modelOverrides = run.model_overrides || {};
     await Promise.allSettled(ready.map(async (a) => {
       try {
         // Always invoke the standalone edge function via HTTP
-        await invokeAgent(a.key, runId);
+        await invokeAgent(a.key, runId, modelOverrides);
         await patchAgentState(runId, a.key, { status: "completed", finished_at: new Date().toISOString() });
       } catch (err) {
         console.error(`Agent ${a.key} failed:`, err);
@@ -229,6 +230,7 @@ Deno.serve(async (req) => {
         topic, input_type: body.input_type || "topic", input_payload: body.input_payload || {},
         brand_voice: body.brand_voice || "professional", language: body.language || "english",
         enabled_agents: body.enabled_agents || null, mode: body.mode || "semi_auto",
+        model_overrides: body.model_overrides || {},
         status: "pending", current_phase: "DISCOVER", agent_states: agentStates,
         total_agents: AGENT_DAG.length, started_at: new Date().toISOString(),
       }).select("id").single();
