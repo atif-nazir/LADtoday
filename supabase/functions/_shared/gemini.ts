@@ -1,15 +1,11 @@
 // Shared Gemini helper used by all backend AI functions.
 // Reads GEMINI_API_KEY from server secrets and calls Google's Generative Language API.
 // Never expose this key to the frontend.
-// Supports dynamic model selection via model-config system.
 
 const GEMINI_API_KEY = Deno.env.get("GEMINI_API_KEY") || "";
 
 // Centralized model id so we can change it in one place later.
 export const GEMINI_TEXT_MODEL = "gemini-2.5-flash";
-
-// Track recent quota errors to trigger fallback
-let recentQuotaErrors: { model: string; timestamp: number }[] = [];
 
 export class GeminiError extends Error {
   status: number;
@@ -53,26 +49,6 @@ function normalizeError(status: number, body: string): GeminiError {
     );
   }
   return new GeminiError(`Gemini API error ${status}: ${detail}`, 500, "api_error");
-}
-
-/**
- * Check if a model recently hit quota and should trigger fallback
- */
-export function shouldFallbackModel(model: string): boolean {
-  const now = Date.now();
-  const recent = recentQuotaErrors.filter(
-    (e) => e.model === model && now - e.timestamp < 60000 // within last 60s
-  );
-  return recent.length >= 2; // fallback after 2 recent quota errors
-}
-
-/**
- * Record a quota error for fallback tracking
- */
-export function recordQuotaError(model: string): void {
-  recentQuotaErrors.push({ model, timestamp: Date.now() });
-  // Trim old errors
-  recentQuotaErrors = recentQuotaErrors.filter((e) => Date.now() - e.timestamp < 120000);
 }
 
 interface GeminiContent {

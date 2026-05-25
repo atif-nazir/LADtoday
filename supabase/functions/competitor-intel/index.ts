@@ -15,10 +15,10 @@ import { insertLog } from "../_shared/logger.ts";
 import {
   writeAgentOutput, readAgentOutput, patchAgentState, loadRun,
 } from "../_shared/pipeline.ts";
-import { selectModelForAgent, getModelInfo } from "../_shared/model-config.ts";
 
 const AGENT_KEY = "competitor-intel";
 const AGENT_NAME = "Competitor Intel";
+const MODEL = "gemini-2.5-flash"; // Flash: competitive analysis needs breadth over depth
 
 const supabase = createClient(
   Deno.env.get("SUPABASE_URL")!,
@@ -185,8 +185,7 @@ async function analyzeCompetitors(
   topic: string,
   competitorUrls: string[],
   scoutData: any,
-  learning: Awaited<ReturnType<typeof loadCompetitorLearning>>,
-  selectedModel: string
+  learning: Awaited<ReturnType<typeof loadCompetitorLearning>>
 ): Promise<CompetitorIntelOutput> {
 
   const scoutContext = scoutData
@@ -315,7 +314,7 @@ Return JSON:
     },
   };
 
-  const raw = await geminiJson<any>(prompt, schema, { model: selectedModel, temperature: 0.6, maxOutputTokens: 3500 });
+  const raw = await geminiJson<any>(prompt, schema, { model: MODEL, temperature: 0.6, maxOutputTokens: 3500 });
   const topGap = (raw.content_gaps || [])[0];
 
   return {
@@ -368,7 +367,7 @@ Deno.serve(async (req) => {
       });
     }
 
-    const { run_id, model_override } = await req.json().catch(() => ({}));
+    const { run_id } = await req.json().catch(() => ({}));
     if (!run_id) {
       return new Response(JSON.stringify({ error: "run_id is required" }), {
         status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -378,7 +377,6 @@ Deno.serve(async (req) => {
     const run = await loadRun(run_id);
     const topic = run.topic || "";
     const topicCategory = inferTopicCategory(topic);
-    const selectedModel = selectModelForAgent(AGENT_KEY, model_override);
 
     console.log(`[${AGENT_NAME}] Starting run=${run_id} topic="${topic}"`);
     await insertLog("ai", AGENT_KEY, `${AGENT_NAME} started`, `topic: ${topic}`, { run_id });
@@ -400,7 +398,7 @@ Deno.serve(async (req) => {
     console.log(`[${AGENT_NAME}] Learning: ${learning.sampleSize} past runs, high-value gaps: [${learning.highValueGapTypes.join(", ")}]`);
 
     // ── Run competitor analysis ──
-    const intelData = await analyzeCompetitors(topic, competitorUrls, scoutData, learning, selectedModel);
+    const intelData = await analyzeCompetitors(topic, competitorUrls, scoutData, learning);
     if (intelData.urgency === "skip") {
       await insertLog("warning", AGENT_KEY, `⚠️ SKIP recommended: ${intelData.skip_reason}`, topic, { run_id });
     }

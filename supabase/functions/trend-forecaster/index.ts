@@ -1,6 +1,6 @@
 // ============================================================
 // Agent 03 — Trend Forecaster Agent
-// Phase: DISCOVER | Model: Configurable (default: gemini-2.5-flash)
+// Phase: DISCOVER | Model: gemini-2.5-flash | Depends on: scout
 // Runs PARALLEL with intelligence, competitor-intel, audience-listener, news-wire
 // ============================================================
 // LEARNING: After articles publish, the system can feed back actual
@@ -15,11 +15,10 @@ import { insertLog } from "../_shared/logger.ts";
 import {
   writeAgentOutput, readAgentOutput, patchAgentState, loadRun,
 } from "../_shared/pipeline.ts";
-import { estimateTokens, inferTopicCategory } from "../_shared/agent-patterns.ts";
-import { selectModelForAgent, getModelInfo } from "../_shared/model-config.ts";
 
 const AGENT_KEY = "trend-forecaster";
 const AGENT_NAME = "Trend Forecaster";
+const MODEL = "gemini-2.5-flash"; // Flash: speed matters for trend timing intelligence
 
 const supabase = createClient(
   Deno.env.get("SUPABASE_URL")!,
@@ -165,7 +164,15 @@ async function writeTrendMemory(
 
 // ─── Topic category inference ──────────────────────────────────────────────────
 
-// function inferTopicCategory is now imported from agent-patterns.ts
+function inferTopicCategory(topic: string): string {
+  const t = topic.toLowerCase();
+  if (/fintech|banking|sbp|payment|crypto/.test(t)) return "fintech";
+  if (/startup|tech|ai|digital|app/.test(t)) return "tech";
+  if (/cricket|psl|sport/.test(t)) return "sports";
+  if (/election|politics|government/.test(t)) return "politics";
+  if (/economy|gdp|inflation|rupee/.test(t)) return "economy";
+  return "general";
+}
 
 // ─── Core Trend Analysis ──────────────────────────────────────────────────────
 
@@ -174,8 +181,7 @@ async function analyzeTrend(
   dateStr: string,
   timeStr: string,
   scoutData: any,
-  calibration: Awaited<ReturnType<typeof loadCalibration>>,
-  selectedModel: string
+  calibration: Awaited<ReturnType<typeof loadCalibration>>
 ): Promise<TrendOutput> {
 
   // Build scout context if available
@@ -307,7 +313,7 @@ Return JSON:
   };
 
   const raw = await geminiJson<any>(prompt, schema, {
-    model: selectedModel,
+    model: MODEL,
     temperature: 0.65,
     maxOutputTokens: 2048,
   });
@@ -368,7 +374,7 @@ Deno.serve(async (req) => {
       });
     }
 
-    const { run_id, model_override } = await req.json().catch(() => ({}));
+    const { run_id } = await req.json().catch(() => ({}));
     if (!run_id) {
       return new Response(JSON.stringify({ error: "run_id is required" }), {
         status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -378,23 +384,17 @@ Deno.serve(async (req) => {
     const run = await loadRun(run_id);
     const topic = run.topic || "";
     const topicCategory = inferTopicCategory(topic);
-    
-    // Select model: override > default > fallback
-    const selectedModel = selectModelForAgent(AGENT_KEY, model_override);
-    const modelInfo = getModelInfo(selectedModel as any);
-    
     const now = new Date();
     const dateStr = now.toISOString().split("T")[0];
     const timeStr = now.toLocaleTimeString("en-US", { timeZone: "Asia/Karachi", hour12: true });
 
-    console.log(`[${AGENT_NAME}] Starting run=${run_id} topic="${topic}" category=${topicCategory} model=${selectedModel}`);
-    await insertLog("ai", AGENT_KEY, `${AGENT_NAME} started`, `topic: ${topic} | model: ${selectedModel}`, { run_id });
+    console.log(`[${AGENT_NAME}] Starting run=${run_id} topic="${topic}" category=${topicCategory}`);
+    await insertLog("ai", AGENT_KEY, `${AGENT_NAME} started`, `topic: ${topic}`, { run_id });
 
     await patchAgentState(run_id, AGENT_KEY, {
       status: "running",
       started_at: new Date().toISOString(),
       topic_category: topicCategory,
-      model: selectedModel,
     });
 
     // ── Read scout output (parallel dep — may or may not be ready, graceful) ──
@@ -406,7 +406,7 @@ Deno.serve(async (req) => {
     console.log(`[${AGENT_NAME}] Calibration: offset=${calibration.calibrationOffset}, accuracy=${calibration.pastAccuracyPct}%, n=${calibration.calibrationSampleSize}`);
 
     // ── Run trend analysis ──
-    const trendData = await analyzeTrend(topic, dateStr, timeStr, scoutData, calibration, selectedModel);
+    const trendData = await analyzeTrend(topic, dateStr, timeStr, scoutData, calibration);
 
     const durationMs = Date.now() - startedAt;
 
@@ -443,7 +443,6 @@ Deno.serve(async (req) => {
       calibration_applied: trendData.calibration_applied,
       calibration_offset: trendData.calibration_offset,
       duration_ms: durationMs,
-      model: selectedModel,
     }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
 
   } catch (err) {
