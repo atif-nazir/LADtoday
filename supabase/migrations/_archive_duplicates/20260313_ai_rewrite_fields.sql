@@ -1,0 +1,7 @@
+-- Add AI rewrite fields to articles table
+ALTER TABLE public.articles ADD COLUMN IF NOT EXISTS ai_title TEXT DEFAULT NULL;
+ALTER TABLE public.articles ADD COLUMN IF NOT EXISTS ai_content TEXT DEFAULT NULL;
+ALTER TABLE public.articles ADD COLUMN IF NOT EXISTS ai_summary TEXT DEFAULT NULL;
+ALTER TABLE public.articles ADD COLUMN IF NOT EXISTS ai_tags TEXT[] DEFAULT NULL;
+ALTER TABLE public.articles ADD COLUMN IF NOT EXISTS ai_thumbnail_url TEXT DEFAULT NULL;
+ALTER TABLE public.articles ADD COLUMN IF NOT EXISTS ai_generated_at TIMESTAMPTZ DEFAULT NULL;
