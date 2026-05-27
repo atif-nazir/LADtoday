@@ -121,6 +121,7 @@ function NewRunForm({ onStarted }: { onStarted: (id: string) => void }) {
   const [url, setUrl] = useState("");
   const [pdfFile, setPdfFile] = useState<File | null>(null);
   const [imageFile, setImageFile] = useState<File | null>(null);
+  const [discoveryMethod, setDiscoveryMethod] = useState<"auto" | "firecrawl" | "gemini_grounding" | "duckduckgo">("auto");
   const [busy, setBusy] = useState(false);
   const [registryAgents, setRegistryAgents] = useState<AgentRow[]>([]);
   const [modelOverrides, setModelOverrides] = useState<Record<string, string>>({});
