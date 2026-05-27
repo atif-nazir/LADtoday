@@ -1047,6 +1047,7 @@ export type Database = {
           input_type: string
           language: string
           mode: string | null
+          model_overrides: Json | null
           priority: string | null
           started_at: string | null
           status: string
@@ -1077,6 +1078,7 @@ export type Database = {
           input_type?: string
           language?: string
           mode?: string | null
+          model_overrides?: Json | null
           priority?: string | null
           started_at?: string | null
           status?: string
@@ -1107,6 +1109,7 @@ export type Database = {
           input_type?: string
           language?: string
           mode?: string | null
+          model_overrides?: Json | null
           priority?: string | null
           started_at?: string | null
           status?: string
