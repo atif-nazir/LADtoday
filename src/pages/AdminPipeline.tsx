@@ -444,6 +444,21 @@ function RunDetail({ runId }: { runId: string }) {
   const [audit, setAudit] = useState<any[]>([]);
   const [drawerAgent, setDrawerAgent] = useState<AgentRow | null>(null);
   const [drawerOutput, setDrawerOutput] = useState<any>(null);
+  const [previewOpen, setPreviewOpen] = useState(false);
+  const [previewBusy, setPreviewBusy] = useState(false);
+  const [preview, setPreview] = useState<any>(null);
+
+  const writePreview = async () => {
+    setPreviewBusy(true); setPreviewOpen(true); setPreview(null);
+    const { data, error } = await supabase.functions.invoke("preview-writer", { body: { run_id: runId } });
+    if (error || data?.error) {
+      toast({ title: "Preview failed", description: error?.message || data?.error, variant: "destructive" });
+      setPreview({ error: error?.message || data?.error });
+    } else {
+      setPreview(data);
+    }
+    setPreviewBusy(false);
+  };
 
   const loadRun = async () => {
     const { data } = await supabase.from("pipeline_runs").select("*").eq("id", runId).maybeSingle();
