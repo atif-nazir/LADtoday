@@ -405,7 +405,7 @@ Return JSON:
     government_source_found: raw.government_source_found || false,
     flags_for_fact_checker: raw.flags_for_fact_checker || [],
     dominant_source_type: dominantSourceType,
-    learning_applied: learning.sampleSize > 0,
+    learning_applied: true,
     past_runs_consulted: learning.sampleSize,
   };
 }

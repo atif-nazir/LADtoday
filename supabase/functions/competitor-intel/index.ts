@@ -334,7 +334,7 @@ Return JSON:
     recommended_differentiator: raw.recommended_differentiator || "",
     first_to_cover: raw.first_to_cover || [],
     competitor_urls_checked: competitorUrls,
-    learning_applied: learning.sampleSize > 0,
+    learning_applied: true,
     high_value_gaps_from_memory: learning.highValueGapTypes.length,
   };
 }

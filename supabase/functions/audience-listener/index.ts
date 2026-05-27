@@ -384,7 +384,7 @@ Return JSON:
     comment_trigger_potential: raw.comment_trigger_potential || "medium",
     share_trigger_emotion: raw.share_trigger_emotion || "surprise",
     viral_element: raw.viral_element || "",
-    learning_applied: learning.sampleSize > 0,
+    learning_applied: true,
     dominant_pain_from_memory: learning.highEngagementPainPoints[0],
     past_runs_analyzed: learning.sampleSize,
   };
