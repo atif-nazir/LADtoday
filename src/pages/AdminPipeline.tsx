@@ -512,6 +512,7 @@ function RunDetail({ runId }: { runId: string }) {
             {run?.error && <div className="mt-2 text-xs text-red-600">{run.error}</div>}
           </div>
           <Button size="sm" variant="outline" onClick={step}><RefreshCw className="w-3 h-3 mr-1" />Step</Button>
+          <Button size="sm" variant="default" onClick={writePreview} disabled={previewBusy}>{previewBusy ? "Writing…" : "Write preview"}</Button>
           <Button size="sm" variant="outline" onClick={cancel}><Square className="w-3 h-3 mr-1" />Cancel</Button>
         </div>
       </div>
