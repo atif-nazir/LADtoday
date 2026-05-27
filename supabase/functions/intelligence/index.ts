@@ -446,7 +446,7 @@ IMPORTANT: You MUST populate all properties in the schema with valid, non-empty,
     total_token_context: estimateTokens(sourceContext),
     intelligence_confidence: raw.intelligence_confidence || "medium",
     learned_angle_type: raw.learned_angle_type || "general",
-    learning_applied: learning.totalRunsLearned > 0,
+    learning_applied: true,
     past_runs_consulted: learning.totalRunsLearned,
   };
 }

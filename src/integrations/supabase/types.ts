@@ -101,6 +101,96 @@ export type Database = {
         }
         Relationships: []
       }
+      agent_memory: {
+        Row: {
+          actual_fb_shares: number | null
+          actual_linkedin_shares: number | null
+          actual_views_week1: number | null
+          agent_key: string
+          angle_type: string | null
+          authority_score: number | null
+          avg_category_views: number | null
+          citation_count: number | null
+          content_brief_style: string | null
+          created_at: string
+          differentiator_used: string | null
+          dominant_source_type: string | null
+          gap_type: string | null
+          id: string
+          opportunity_realized: number | null
+          optimal_publish_correct: boolean | null
+          optimal_publish_recommended: string | null
+          pain_point_used: string | null
+          platform_used: string | null
+          predicted_momentum: number | null
+          research_pattern: string | null
+          share_emotion: string | null
+          source_used: string | null
+          topic_category: string | null
+          trajectory: string | null
+          virality_score: number | null
+          was_breaking_predicted: boolean | null
+        }
+        Insert: {
+          actual_fb_shares?: number | null
+          actual_linkedin_shares?: number | null
+          actual_views_week1?: number | null
+          agent_key: string
+          angle_type?: string | null
+          authority_score?: number | null
+          avg_category_views?: number | null
+          citation_count?: number | null
+          content_brief_style?: string | null
+          created_at?: string
+          differentiator_used?: string | null
+          dominant_source_type?: string | null
+          gap_type?: string | null
+          id?: string
+          opportunity_realized?: number | null
+          optimal_publish_correct?: boolean | null
+          optimal_publish_recommended?: string | null
+          pain_point_used?: string | null
+          platform_used?: string | null
+          predicted_momentum?: number | null
+          research_pattern?: string | null
+          share_emotion?: string | null
+          source_used?: string | null
+          topic_category?: string | null
+          trajectory?: string | null
+          virality_score?: number | null
+          was_breaking_predicted?: boolean | null
+        }
+        Update: {
+          actual_fb_shares?: number | null
+          actual_linkedin_shares?: number | null
+          actual_views_week1?: number | null
+          agent_key?: string
+          angle_type?: string | null
+          authority_score?: number | null
+          avg_category_views?: number | null
+          citation_count?: number | null
+          content_brief_style?: string | null
+          created_at?: string
+          differentiator_used?: string | null
+          dominant_source_type?: string | null
+          gap_type?: string | null
+          id?: string
+          opportunity_realized?: number | null
+          optimal_publish_correct?: boolean | null
+          optimal_publish_recommended?: string | null
+          pain_point_used?: string | null
+          platform_used?: string | null
+          predicted_momentum?: number | null
+          research_pattern?: string | null
+          share_emotion?: string | null
+          source_used?: string | null
+          topic_category?: string | null
+          trajectory?: string | null
+          virality_score?: number | null
+          was_breaking_predicted?: boolean | null
+        }
+        Relationships: []
+      }
       agent_outputs: {
         Row: {
           agent_key: string

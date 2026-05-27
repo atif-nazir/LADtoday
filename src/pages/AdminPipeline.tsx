@@ -121,6 +121,7 @@ function NewRunForm({ onStarted }: { onStarted: (id: string) => void }) {
   const [url, setUrl] = useState("");
   const [pdfFile, setPdfFile] = useState<File | null>(null);
   const [imageFile, setImageFile] = useState<File | null>(null);
+  const [discoveryMethod, setDiscoveryMethod] = useState<"auto" | "firecrawl" | "gemini_grounding" | "duckduckgo">("auto");
   const [busy, setBusy] = useState(false);
   const [registryAgents, setRegistryAgents] = useState<AgentRow[]>([]);
   const [modelOverrides, setModelOverrides] = useState<Record<string, string>>({});
@@ -155,7 +156,7 @@ function NewRunForm({ onStarted }: { onStarted: (id: string) => void }) {
     }
     setBusy(true);
     try {
-      const input_payload: Record<string, string> = {};
+      const input_payload: Record<string, string> = { discovery_method: discoveryMethod };
       let input_type = "topic";
       if (url.trim()) { input_payload.url = url.trim(); input_type = "url"; }
       if (pdfFile) {
@@ -222,7 +223,17 @@ function NewRunForm({ onStarted }: { onStarted: (id: string) => void }) {
               onChange={(e) => setImageFile(e.target.files?.[0] || null)} />
             {imageFile ? `🖼 ${imageFile.name}` : "Attach Image"}
           </label>
+        <div>
+          <Label className="text-[10px] uppercase tracking-wide text-muted-foreground">Discovery method (Scout)</Label>
+          <select value={discoveryMethod} onChange={(e) => setDiscoveryMethod(e.target.value as any)}
+            className="mt-1 w-full h-9 rounded-md border border-input bg-background px-3 text-xs">
+            <option value="auto">Auto (Firecrawl → Gemini grounding → DuckDuckGo)</option>
+            <option value="firecrawl">Firecrawl (best quality, uses API key)</option>
+            <option value="gemini_grounding">Gemini Google Search grounding (20 RPD)</option>
+            <option value="duckduckgo">DuckDuckGo HTML (no key, always works)</option>
+          </select>
         </div>
+      </div>
       </div>
 
       <div className="grid grid-cols-2 gap-3">
@@ -433,6 +444,21 @@ function RunDetail({ runId }: { runId: string }) {
   const [audit, setAudit] = useState<any[]>([]);
   const [drawerAgent, setDrawerAgent] = useState<AgentRow | null>(null);
   const [drawerOutput, setDrawerOutput] = useState<any>(null);
+  const [previewOpen, setPreviewOpen] = useState(false);
+  const [previewBusy, setPreviewBusy] = useState(false);
+  const [preview, setPreview] = useState<any>(null);
+
+  const writePreview = async () => {
+    setPreviewBusy(true); setPreviewOpen(true); setPreview(null);
+    const { data, error } = await supabase.functions.invoke("preview-writer", { body: { run_id: runId } });
+    if (error || data?.error) {
+      toast({ title: "Preview failed", description: error?.message || data?.error, variant: "destructive" });
+      setPreview({ error: error?.message || data?.error });
+    } else {
+      setPreview(data);
+    }
+    setPreviewBusy(false);
+  };
 
   const loadRun = async () => {
     const { data } = await supabase.from("pipeline_runs").select("*").eq("id", runId).maybeSingle();
@@ -486,6 +512,7 @@ function RunDetail({ runId }: { runId: string }) {
             {run?.error && <div className="mt-2 text-xs text-red-600">{run.error}</div>}
           </div>
           <Button size="sm" variant="outline" onClick={step}><RefreshCw className="w-3 h-3 mr-1" />Step</Button>
+          <Button size="sm" variant="default" onClick={writePreview} disabled={previewBusy}>{previewBusy ? "Writing…" : "Write preview"}</Button>
           <Button size="sm" variant="outline" onClick={cancel}><Square className="w-3 h-3 mr-1" />Cancel</Button>
         </div>
       </div>

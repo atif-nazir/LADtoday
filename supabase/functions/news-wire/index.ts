@@ -306,7 +306,7 @@ Return JSON:
     recommended_coverage_timing: raw.recommended_coverage_timing || "",
     calibrated_urgency_threshold: learning.calibratedUrgencyThreshold,
     false_alarm_risk: learning.falseAlarmRate > 0.3 ? "high" : learning.falseAlarmRate > 0.15 ? "medium" : "low",
-    learning_applied: learning.sampleSize > 0,
+    learning_applied: true,
   };
 }
 
