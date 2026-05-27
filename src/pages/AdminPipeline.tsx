@@ -156,7 +156,7 @@ function NewRunForm({ onStarted }: { onStarted: (id: string) => void }) {
     }
     setBusy(true);
     try {
-      const input_payload: Record<string, string> = {};
+      const input_payload: Record<string, string> = { discovery_method: discoveryMethod };
       let input_type = "topic";
       if (url.trim()) { input_payload.url = url.trim(); input_type = "url"; }
       if (pdfFile) {
