@@ -223,7 +223,17 @@ function NewRunForm({ onStarted }: { onStarted: (id: string) => void }) {
               onChange={(e) => setImageFile(e.target.files?.[0] || null)} />
             {imageFile ? `🖼 ${imageFile.name}` : "Attach Image"}
           </label>
+        <div>
+          <Label className="text-[10px] uppercase tracking-wide text-muted-foreground">Discovery method (Scout)</Label>
+          <select value={discoveryMethod} onChange={(e) => setDiscoveryMethod(e.target.value as any)}
+            className="mt-1 w-full h-9 rounded-md border border-input bg-background px-3 text-xs">
+            <option value="auto">Auto (Firecrawl → Gemini grounding → DuckDuckGo)</option>
+            <option value="firecrawl">Firecrawl (best quality, uses API key)</option>
+            <option value="gemini_grounding">Gemini Google Search grounding (20 RPD)</option>
+            <option value="duckduckgo">DuckDuckGo HTML (no key, always works)</option>
+          </select>
         </div>
+      </div>
       </div>
 
       <div className="grid grid-cols-2 gap-3">
