@@ -46,10 +46,16 @@ function normalizeError(status: number, body: string): GeminiError {
     return new GeminiError(`Gemini authentication failed: ${detail}`, 401, "invalid_key");
   }
   if (status === 429) {
+    // Check if this is a rate limit or quota exceeded
+    const isQuotaExhausted = detail.toLowerCase().includes("quota") || 
+                             detail.toLowerCase().includes("free_tier");
+    
     return new GeminiError(
-      `Gemini quota exceeded. Check Google AI Studio billing/quota for this API key. Detail: ${detail}`,
+      isQuotaExhausted 
+        ? `Gemini quota exceeded. Check Google AI Studio billing/quota for this API key. Falling back to AI/ML API. Detail: ${detail}`
+        : `Gemini rate limited. Retrying or falling back to AI/ML API. Detail: ${detail}`,
       429,
-      "quota_exceeded"
+      isQuotaExhausted ? "quota_exceeded" : "rate_limited"
     );
   }
   return new GeminiError(`Gemini API error ${status}: ${detail}`, 500, "api_error");

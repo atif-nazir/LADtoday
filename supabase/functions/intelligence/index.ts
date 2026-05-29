@@ -10,6 +10,7 @@
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { geminiJson, GeminiError } from "../_shared/gemini.ts";
+import { generateJSON, getAvailableProviders } from "../_shared/ai-provider.ts";
 import { insertLog } from "../_shared/logger.ts";
 import {
   writeAgentOutput, readAgentOutput, patchAgentState, loadRun,
@@ -210,7 +211,7 @@ async function writeLearningMemory(
   } catch { /* non-fatal */ }
 }
 
-// ─── Helpers ──────────────────────────────────────────────────────────────────
+// ─── Helpers ────────���─────────────────────────────────────────────────────────
 
 function estimateTokens(text: string): number {
   return Math.ceil(text.length / 4);
@@ -462,12 +463,20 @@ IMPORTANT: You MUST populate all properties in the schema with valid, non-empty,
   // Dynamic temperature: lower when learning says to be precise, higher when exploring
   const temp = learning.totalRunsLearned > 10 ? 0.5 : 0.65;
 
-  const raw = await geminiJson<any>(prompt, schema, {
-    model: selectedModel,
+  // Use unified AI provider with fallback support
+  const result = await generateJSON<any>(prompt, schema, {
     temperature: temp,
-    maxOutputTokens: 6144,
-    retries: 3, // Retry up to 3 times if JSON is malformed
+    max_tokens: 6144,
+    allowFallback: true,
+    onFallback: (reason, provider) => {
+      console.log(`[${AGENT_NAME}] Fallback triggered: ${reason} → using ${provider}`);
+    }
   });
+
+  const raw = result.data;
+  
+  // Log which provider was used
+  console.log(`[${AGENT_NAME}] Intelligence extraction completed via ${result.provider} (retried: ${result.retried || false})`);
 
   return {
     key_facts: raw.key_facts || [],
