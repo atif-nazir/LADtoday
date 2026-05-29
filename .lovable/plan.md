@@ -1,66 +1,69 @@
-
-# Plan — Agent 01 (Scout) Real Source Discovery
+# 10-Agent LADtoday Pipeline — Integration Plan
 
 ## Goal
-Upgrade Scout so it behaves like a real research assistant: take a humanly-worded prompt (or URL/PDF/image) and return a list of **real, fetched** sources from the open web — not Gemini-imagined sources. Everything downstream (agents 02–50, publish, FB) stays untouched.
+Replace the current 50-agent `/admin/pipeline` orchestration with the new 10-agent hackathon architecture from `hackathon/` (Scout, Intelligence, Rewrite, SEO, Vision, Creative, Guardian, Publish, Analytics, Account Manager + Orchestrator). Keep the **legacy scrape → auto-rewrite → publish → Facebook** flow (`/admin/scraper-sources`, `auto-rewrite`, `auto-post-facebook`) 100% untouched.
 
-## Guardrails
-- Do **not** touch the existing scraper / rewrite / publish / Facebook flow (`/admin/scraper-sources`, `auto-rewrite`, `auto-post-facebook`, etc.).
-- Do **not** modify other agent functions, orchestrator DAG, or DB schema (besides `pipeline_runs.input_payload` which already stores `{url?, pdf?, image?}`).
-- Only edit: `supabase/functions/scout/index.ts`, the Pipeline tab's `NewRunForm` in `src/pages/AdminPipeline.tsx`, and add one small storage bucket if needed for uploads.
+## What stays (do NOT touch)
+- `supabase/functions/scrape-articles`, `auto-rewrite`, `rewrite-article`, `auto-post-facebook`, `manual-post-facebook`, `generate-caption`, `social-meta-proxy`, `ai-admin`
+- `/admin/scraper-sources`, `/admin/facebook-pages`, `/admin/facebook-queue`, `/admin/media`, `/admin/categories`, `/admin/settings`, `/admin/logs`
+- `articles` table public reads, Facebook posting tables
+- All shared helpers used by those: `_shared/lobstertrap.ts`, `_shared/logger.ts`
 
-## What Scout will do (new behavior)
+## What changes
 
-### 1. Input normalization
-The orchestrator already accepts `input_type` + `input_payload`. Scout will read:
-- `topic` — free-text prompt ("tell me what's happening with Pakistan fintech this week")
-- `input_payload.url` — single URL
-- `input_payload.pdf_url` — uploaded PDF in Supabase Storage
-- `input_payload.image_url` — uploaded image (→ sets `image_mode=true` for Vision-16)
+### 1. Edge functions
+- **Add 10 new functions** (copy + adapt from `hackathon/index*.ts`):
+  - `orchestrator-v2` (rename from `orchestrator` to avoid collision; old `pipeline-orchestrator` stays for legacy runs)
+  - `scout-agent`, `intelligence-agent`, `rewrite-agent`, `seo-agent`, `vision-agent`, `creative-agent`, `guardian-agent`, `publish-agent`, `analytics-agent`, `account-manager-agent`
+- **Adapt** each function to this project:
+  - Use existing `_shared/cors.ts` style (npm: import) and `_shared/gemini.ts` where the hackathon uses raw fetch to Gemini
+  - Use the existing `pipeline_runs` + `agent_outputs` tables (no new `articles.pipeline_status` column — store progress in `pipeline_runs.agent_states`)
+  - Route Bright Data scraping; fall back to Firecrawl (already wired) when Bright Data key missing, then DuckDuckGo as last resort — so demo never returns 0 sources
+  - Keep current Scout's multi-input support (topic / URL / PDF / image) on top of the new Bright Data discovery
+- **Delete** the 40 unused agent functions (everything in `agent_registry` not in the new 10). Keep their `Jugar/` copies as reference.
 
-### 2. Real source discovery (replaces "Gemini imagines sources")
-For **topic** input:
-1. **Query expansion** — Gemini Flash turns the human prompt into 3–5 focused search queries (e.g. "Pakistan fintech 2026", "SBP digital wallet license 2026", "Easypaisa JazzCash growth").
-2. **Web search** — call **Firecrawl `/v2/search`** (already documented in context; connect via `standard_connectors--connect` for `firecrawl`). For each query, request top ~5 results with `scrapeOptions: { formats: ['markdown'] }` so we get titles, URLs, snippets, and full markdown bodies in one call.
-   - Fallback: if Firecrawl key not configured, use Gemini with Google Search grounding (`tools: [{google_search: {}}]`) to get real URLs, then fetch each with the existing `fetchUrlContent` helper.
-3. **Merge + dedupe** — pool all results, dedupe by domain + cosine similarity (existing logic stays).
-4. **Score** — Gemini Flash, given the real titles + first 1.5k chars of each, fills in `credibility_score`, `recency_score`, `relevance_score`, `key_facts`, `sentiment` per source. This replaces the current "make up a realistic source" prompt.
+### 2. Database (one migration)
+- Reset `agent_registry`: clear rows, insert exactly the 10 new agents with correct `phase` / `order_index` / `depends_on` / `enabled=true`
+- Add columns to `pipeline_runs` if missing: `mode` (`gtm|finance|security`), `tone`, `length` (already have `brand_voice`, `language` — map onto these)
+- Add `agent_runs` view OR reuse `agent_outputs` (prefer reuse — no new table)
+- No new tables for Cognee — store memory in existing `agent_memory` table
 
-For **URL** input: fetch via Firecrawl scrape (handles JS-rendered pages, anti-bot) and **also** run a small topic search on the page's title to add 2–3 supporting sources.
+### 3. Secrets needed (you'll add via UI)
+- `BRIGHTDATA_API_TOKEN` (required) — SERP API + Web Unlocker
+- `BRIGHTDATA_CUSTOMER_ID`, `BRIGHTDATA_PASSWORD` (for Web Unlocker proxy auth)
+- `AIML_API_KEY` (optional — Intelligence falls back to Gemini if missing)
+- `COGNEE_API_KEY` (optional — memory falls back to local `agent_memory` table)
+- `TRIGGERWARE_WEBHOOK_URL` (optional — Publish skips webhook if missing)
+- Already present: `GEMINI_API_KEY`, `FIRECRAWL_API_KEY`
 
-For **PDF** input: download from storage, extract text via `unpdf` (npm, Deno-friendly), treat extracted text as one source, then supplement with topic search using the PDF's inferred title.
+Every optional integration degrades gracefully so the pipeline never hard-fails on a missing key.
 
-For **image** input: store URL, flag `image_mode=true`, run topic search on the user's prompt to gather sources around the image (Vision-16 later analyzes the image itself).
+### 4. UI — `/admin/pipeline`
+Rewrite `src/pages/AdminPipeline.tsx` (keep route, replace internals):
+- Top: NewRunForm with prompt textarea, `mode` (GTM / Finance / Security), `tone`, `length`, optional URL/PDF/Image attach, optional discovery-method override (auto / brightdata / firecrawl / duckduckgo / gemini-grounding)
+- Active run view: timeline of 10 agents with live status (Realtime subscription on `pipeline_runs.agent_states`)
+- Per-agent drawer: shows input + output JSON from `agent_outputs`, plus a "Bright Data calls" badge on Scout
+- Preview Writer button (already exists) → keeps working as mid-pipeline draft tool
+- Final state: shows headline, body markdown, Guardian verdict pill, social snippets, "Publish to web" + "Post to Facebook" buttons (the FB button hands off to existing `manual-post-facebook` so legacy flow stays the publish pathway)
 
-### 3. Output shape
-Unchanged — same `ScoutOutput` interface, so Agent 02 (Intelligence) and the rest of the DAG keep working.
-
-## UI change — Pipeline tab only
-Replace the current `NewRunForm` Textarea with:
-- A larger prompt textarea ("Ask in plain language — what should we write about?")
-- An "Attach" row with three buttons: **URL** (text field), **PDF** (file upload to `pipeline-inputs` bucket), **Image** (file upload, same bucket)
-- Same Brand voice / Language selects
-- "Run pipeline" button → sends `{ topic, input_type, input_payload: { url?, pdf_url?, image_url? } }` to `pipeline-orchestrator`
-
-A small "Sources found" preview card appears under the run as soon as Scout completes (reads from `agent_outputs` where `agent_key='scout'`), showing real URLs + domains so the user can sanity-check before later agents run.
-
-## Connector / secrets
-- Ask user to connect **Firecrawl** (preferred — best for search + scrape in one call, handles anti-bot).
-- `GEMINI_API_KEY` already present → fallback path works without Firecrawl.
-- New storage bucket `pipeline-inputs` (private) for PDF/image uploads.
-
-## Files to change
-1. `supabase/functions/scout/index.ts` — replace `scoutByTopic` with `searchAndAnalyze` (Firecrawl-first, Gemini-grounding fallback), add `scoutByPdf`, keep `scoutByUrl` but route through Firecrawl scrape.
-2. `src/pages/AdminPipeline.tsx` — upgrade `NewRunForm` (URL/PDF/image attachments + upload to storage), add small "Scout sources" preview block in `RunDetail`.
-3. New migration — create private storage bucket `pipeline-inputs` with RLS (admin-only insert, signed URLs for read).
-
-## Out of scope (explicitly)
-- No change to agents 02–50.
-- No change to orchestrator DAG, registry, or `/admin/scraper-sources` legacy flow.
-- No change to publish or Facebook posting.
+### 5. Out of scope
+- No changes to `/admin/scraper-sources` flow
+- No new payment / auth screens
+- No public-facing article changes
+- Cognee/TriggerWare/AI-ML are wired but considered optional bonuses
 
 ## Acceptance test
-1. On `/admin/pipeline`, type "what's the latest on Pakistan's solar net-metering policy" → Run.
-2. Within ~10s, Scout's drawer shows 5 sources with **real reachable URLs** (Dawn, Tribune, SBP, etc.), real titles, and 300-word summaries pulled from those pages.
-3. Existing downstream agents continue exactly as before; final article publishes to web (and FB if enabled).
-4. Repeat with a URL, then a PDF, then an image — each produces a valid Scout output and the pipeline continues.
+1. On `/admin/pipeline` → type "Pakistan interest rate decision", pick Finance mode → Run
+2. See 10 agents tick through with real Bright Data source URLs in Scout output (or Firecrawl fallback if no BD key)
+3. Guardian returns APPROVED / FLAGGED / QUARANTINED — UI shows pill
+4. Click "Publish to web" → article appears on the public site exactly like today's scraper-produced articles
+5. Click "Post to Facebook" → hands off to existing FB queue, posts unchanged
+6. Old scraper flow at `/admin/scraper-sources` still runs end-to-end untouched
+
+## Open questions for you
+1. **Bright Data**: Do you have the token + customer ID + password ready, or should I make Scout default to Firecrawl-only and treat Bright Data as an optional upgrade you can add later?
+2. **AI/ML API, Cognee, TriggerWare**: Same question — wire them as optional (Gemini-fallback) so the pipeline runs today, then you drop keys in when ready?
+3. **Old 40 agents**: Delete the edge function source files, or just disable them in `agent_registry` and leave the code? Delete is cleaner; disable is safer if you change your mind.
+4. **`/admin/pipeline` route**: Full rewrite of the page, or keep the existing tabs (Costs / Backups / Health etc.) and only replace the "New run" tab? The hackathon UI is much simpler than what's there now.
+
+Once you answer those 4 I'll build straight through — migration first, then 10 functions, then UI — and ping you when it's ready to test.
