@@ -9,6 +9,7 @@
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { geminiJson, GeminiError } from "../_shared/gemini.ts";
+import { generateJSON } from "../_shared/ai-provider.ts";
 import { insertLog } from "../_shared/logger.ts";
 import { writeAgentOutput, patchAgentState, loadRun } from "../_shared/pipeline.ts";
 import { selectModelForAgent } from "../_shared/model-config.ts";
@@ -97,7 +98,16 @@ Convert this into 3 focused web search queries a journalist would use to find au
 Prefer Pakistani context where relevant. Language: ${language}.
 Return JSON: { "queries": ["...","...","..."] }`;
   try {
-    const out = await geminiJson<{ queries: string[] }>(prompt, schema, { model, temperature: 0.4, maxOutputTokens: 512 });
+    // Use unified AI provider with fallback support
+    const result = await generateJSON<{ queries: string[] }>(prompt, schema, {
+      temperature: 0.4,
+      max_tokens: 512,
+      allowFallback: true,
+      onFallback: (reason, provider) => {
+        console.log(`[${AGENT_NAME}] Query expansion fallback: ${reason} → using ${provider}`);
+      }
+    });
+    const out = result.data;
     const qs = (out.queries || []).map(q => q.trim()).filter(Boolean);
     return qs.length ? qs.slice(0, 3) : [topic];
   } catch (err) {
@@ -367,7 +377,16 @@ pakistan_relevance_score 0-10, scout_notes (1-2 sentence editor summary)
 
 Sources:\n${sourcesBlock}`;
 
-  const scored = await geminiJson(prompt, schema, { model, temperature: 0.3, maxOutputTokens: 8192 });
+  // Use unified AI provider with fallback support
+  const result = await generateJSON(prompt, schema, {
+    temperature: 0.3,
+    max_tokens: 8192,
+    allowFallback: true,
+    onFallback: (reason, provider) => {
+      console.log(`[${AGENT_NAME}] Source scoring fallback: ${reason} → using ${provider}`);
+    }
+  });
+  const scored = result.data;
 
   const scoredArr: any[] = scored.sources || [];
   if (scoredArr.length === 0) throw new Error("Gemini scoring returned 0 sources");

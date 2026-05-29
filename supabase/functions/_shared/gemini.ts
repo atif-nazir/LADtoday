@@ -125,6 +125,7 @@ export async function geminiText(
  *
  * `schema` follows the Gemini responseSchema format (a JSON Schema subset).
  * Integrated with Lobster Trap for prompt injection detection.
+ * On quota exceeded (429), throws GeminiError with code="quota_exceeded" for fallback handling.
  */
 export async function geminiJson<T = any>(
   prompt: string,
@@ -219,6 +220,13 @@ export async function geminiJson<T = any>(
       }
     } catch (err) {
       lastError = err as Error;
+      
+      // If quota exceeded, propagate immediately so ai-provider can fallback
+      if (err instanceof GeminiError && err.code === "quota_exceeded") {
+        console.error(`[Gemini] Quota exceeded on attempt ${attempt + 1}, will fallback to AI/ML API`);
+        throw err;
+      }
+      
       if (attempt < maxRetries && !(err instanceof GeminiError && err.code === "invalid_key")) {
         console.warn(`[Gemini] Attempt ${attempt + 1} failed, retrying...`);
         await new Promise(resolve => setTimeout(resolve, 1000 * (attempt + 1))); // Exponential backoff
