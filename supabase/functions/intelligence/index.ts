@@ -519,11 +519,11 @@ Deno.serve(async (req) => {
     if (!scoutOutput) {
       throw new Error("scout output not found. Scout must complete before Intelligence.");
     }
-    const sourceCount = (scoutOutput.sources || []).length;
-    console.log(`[${AGENT_NAME}] Loaded ${sourceCount} scout sources`);
+    const scoutSourceCount = (scoutOutput.sources || []).length;
+    console.log(`[${AGENT_NAME}] Loaded ${scoutSourceCount} scout sources`);
     
     // If Scout found 0 sources, we can still proceed with knowledge-based analysis
-    if (sourceCount === 0) {
+    if (scoutSourceCount === 0) {
       console.log(`[${AGENT_NAME}] ⚠️ Scout found 0 sources — proceeding with knowledge-based analysis`);
     }
 
