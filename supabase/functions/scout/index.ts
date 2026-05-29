@@ -12,6 +12,10 @@ import { geminiJson, GeminiError } from "../_shared/gemini.ts";
 import { insertLog } from "../_shared/logger.ts";
 import { writeAgentOutput, patchAgentState, loadRun } from "../_shared/pipeline.ts";
 import { selectModelForAgent } from "../_shared/model-config.ts";
+import {
+  hasAIMLAPIKey,
+  aimlJson,
+} from "../_shared/aimlapi.ts";
 import { 
   hasBrightDataCredentials, 
   brightDataSERP, 
@@ -87,18 +91,39 @@ async function fetchUrlContent(url: string): Promise<string> {
 
 // ─── Query expansion ─────────────────────────────────────────────────────────
 async function expandQueries(topic: string, language: string, model: string): Promise<string[]> {
-  const schema = {
-    type: "object",
-    properties: { queries: { type: "array", items: { type: "string" } } },
-    required: ["queries"],
-  };
-  const prompt = `You are a research assistant. The user asked: """${topic}"""
+  const systemPrompt = `You are a research assistant. Convert topics into focused web search queries.
+Return ONLY valid JSON. No markdown.`;
+
+  const userPrompt = `The user asked: """${topic}"""
 Convert this into 3 focused web search queries a journalist would use to find authoritative recent sources.
 Prefer Pakistani context where relevant. Language: ${language}.
 Return JSON: { "queries": ["...","...","..."] }`;
+
   try {
-    const out = await geminiJson<{ queries: string[] }>(prompt, schema, { model, temperature: 0.4, maxOutputTokens: 512 });
+    // Try AI/ML API first if available
+    if (hasAIMLAPIKey()) {
+      try {
+        const result = await aimlJson<{ queries: string[] }>(systemPrompt, userPrompt, { 
+          temperature: 0.4, 
+          max_tokens: 512 
+        });
+        const qs = (result.queries || []).map(q => q.trim()).filter(Boolean);
+        console.log(`[${AGENT_NAME}] Query expansion via AI/ML API`);
+        return qs.length ? qs.slice(0, 3) : [topic];
+      } catch (aimlErr) {
+        console.warn(`[${AGENT_NAME}] AI/ML API query expansion failed, falling back to Gemini: ${aimlErr}`);
+      }
+    }
+
+    // Fallback to Gemini
+    const schema = {
+      type: "object",
+      properties: { queries: { type: "array", items: { type: "string" } } },
+      required: ["queries"],
+    };
+    const out = await geminiJson<{ queries: string[] }>(userPrompt, schema, { model, temperature: 0.4, maxOutputTokens: 512 });
     const qs = (out.queries || []).map(q => q.trim()).filter(Boolean);
+    console.log(`[${AGENT_NAME}] Query expansion via Gemini (fallback)`);
     return qs.length ? qs.slice(0, 3) : [topic];
   } catch (err) {
     console.warn(`[${AGENT_NAME}] Query expansion failed (${err}), using topic as-is`);
@@ -316,38 +341,14 @@ async function scoreSources(topic: string, raws: RawSource[], model: string): Pr
   }
 }
 
-// Gemini-based scoring (high quality)
+// AI/ML API based scoring (primary) with Gemini fallback
 async function scoreSourcesWithGemini(topic: string, enriched: any[], model: string): Promise<{ sources: SourceResult[]; meta: any }> {
-  const schema = {
-    type: "object",
-    properties: {
-      sources: {
-        type: "array",
-        items: {
-          type: "object",
-          properties: {
-            index: { type: "number" },
-            full_text: { type: "string" }, author: { type: "string" },
-            publish_date: { type: "string" },
-            credibility_score: { type: "number" }, recency_score: { type: "number" },
-            relevance_score: { type: "number" },
-            key_facts: { type: "array", items: { type: "string" } },
-            sentiment: { type: "string" },
-            credibility_signals: { type: "array", items: { type: "string" } },
-          },
-          required: ["index","full_text","author","publish_date","credibility_score","recency_score","relevance_score","key_facts","sentiment","credibility_signals"],
-        },
-      },
-      top_source_domain: { type: "string" }, overall_sentiment: { type: "string" },
-      content_density: { type: "string" }, recommended_angle: { type: "string" },
-      pakistan_relevance_score: { type: "number" }, scout_notes: { type: "string" },
-    },
-    required: ["sources","top_source_domain","overall_sentiment","content_density","recommended_angle","pakistan_relevance_score","scout_notes"],
-  };
-
   const sourcesBlock = enriched.map((s, i) => `[SOURCE ${i}] ${s.title}\nURL: ${s.url}\nBODY:\n${s.body}\n`).join("\n---\n");
 
-  const prompt = `You are LADtoday's research analyst. Topic: "${topic}".
+  const systemPrompt = `You are LADtoday's research analyst. Analyze sources and score credibility.
+Output ONLY valid JSON. No markdown.`;
+
+  const userPrompt = `Topic: "${topic}".
 Populate every required field. No empty strings, no empty arrays, no nulls.
 
 For EACH source:
@@ -365,12 +366,76 @@ Overall: top_source_domain, overall_sentiment, content_density (low|medium|high)
 recommended_angle (1-2 sentence editorial angle for Pakistani audience),
 pakistan_relevance_score 0-10, scout_notes (1-2 sentence editor summary)
 
-Sources:\n${sourcesBlock}`;
+Sources:\n${sourcesBlock}
 
-  const scored = await geminiJson(prompt, schema, { model, temperature: 0.3, maxOutputTokens: 8192 });
+Return JSON with structure:
+{
+  "sources": [...],
+  "top_source_domain": "...",
+  "overall_sentiment": "...",
+  "content_density": "...",
+  "recommended_angle": "...",
+  "pakistan_relevance_score": 0,
+  "scout_notes": "..."
+}`;
 
+  let scored;
+
+  try {
+    // Try AI/ML API first if available
+    if (hasAIMLAPIKey()) {
+      try {
+        scored = await aimlJson<any>(systemPrompt, userPrompt, {
+          temperature: 0.3,
+          max_tokens: 8192,
+        });
+        console.log(`[${AGENT_NAME}] Source scoring via AI/ML API`);
+        return extractScoredSources(scored);
+      } catch (aimlErr) {
+        console.warn(`[${AGENT_NAME}] AI/ML API source scoring failed, falling back to Gemini: ${aimlErr}`);
+      }
+    }
+
+    // Fallback to Gemini
+    const schema = {
+      type: "object",
+      properties: {
+        sources: {
+          type: "array",
+          items: {
+            type: "object",
+            properties: {
+              index: { type: "number" },
+              full_text: { type: "string" }, author: { type: "string" },
+              publish_date: { type: "string" },
+              credibility_score: { type: "number" }, recency_score: { type: "number" },
+              relevance_score: { type: "number" },
+              key_facts: { type: "array", items: { type: "string" } },
+              sentiment: { type: "string" },
+              credibility_signals: { type: "array", items: { type: "string" } },
+            },
+            required: ["index","full_text","author","publish_date","credibility_score","recency_score","relevance_score","key_facts","sentiment","credibility_signals"],
+          },
+        },
+        top_source_domain: { type: "string" }, overall_sentiment: { type: "string" },
+        content_density: { type: "string" }, recommended_angle: { type: "string" },
+        pakistan_relevance_score: { type: "number" }, scout_notes: { type: "string" },
+      },
+      required: ["sources","top_source_domain","overall_sentiment","content_density","recommended_angle","pakistan_relevance_score","scout_notes"],
+    };
+    scored = await geminiJson(userPrompt, schema, { model, temperature: 0.3, maxOutputTokens: 8192 });
+    console.log(`[${AGENT_NAME}] Source scoring via Gemini (fallback)`);
+    return extractScoredSources(scored, enriched);
+  } catch (err) {
+    console.warn(`[${AGENT_NAME}] All scoring attempts failed: ${err}`);
+    throw err;
+  }
+}
+
+// Helper to extract and transform scored sources
+function extractScoredSources(scored: any, enriched: any[]): { sources: SourceResult[]; meta: any } {
   const scoredArr: any[] = scored.sources || [];
-  if (scoredArr.length === 0) throw new Error("Gemini scoring returned 0 sources");
+  if (scoredArr.length === 0) throw new Error("Scoring returned 0 sources");
 
   const sources: SourceResult[] = enriched.map((s, i) => {
     const sc = scoredArr.find((x: any) => x.index === i) || scoredArr[i];

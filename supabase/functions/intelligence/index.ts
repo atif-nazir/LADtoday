@@ -17,7 +17,8 @@ import {
 import { selectModelForAgent } from "../_shared/model-config.ts";
 import { 
   hasAIMLAPIKey, 
-  aimlIntelligenceAnalysis
+  aimlIntelligenceAnalysis,
+  aimlJson,
 } from "../_shared/aimlapi.ts";
 import { 
   hasCogneeKey, 
@@ -210,7 +211,7 @@ async function writeLearningMemory(
   } catch { /* non-fatal */ }
 }
 
-// ─── Helpers ────────���─────────────────────────────────────────────────────────
+// ─── Helpers ────────���─���───────────────────────────────────────────────────────
 
 function estimateTokens(text: string): number {
   return Math.ceil(text.length / 4);
@@ -462,15 +463,37 @@ IMPORTANT: You MUST populate all properties in the schema with valid, non-empty,
   // Dynamic temperature: lower when learning says to be precise, higher when exploring
   const temp = learning.totalRunsLearned > 10 ? 0.5 : 0.65;
 
-  // Use Gemini for JSON extraction (with proper error handling for quota)
-  const raw = await geminiJson<any>(prompt, schema, {
-    model: selectedModel,
-    temperature: temp,
-    maxOutputTokens: 6144,
-    retries: 3,
-  });
+  let raw: any;
 
-  console.log(`[${AGENT_NAME}] Intelligence extraction completed via Gemini`);
+  try {
+    // Try AI/ML API first if available
+    if (hasAIMLAPIKey()) {
+      try {
+        const systemMsg = `You are a senior editorial analyst for LADtoday — Pakistan's leading AI-powered digital media platform.
+Output ONLY valid JSON. No markdown.`;
+        raw = await aimlJson<any>(systemMsg, prompt, {
+          temperature: temp,
+          max_tokens: 6144,
+        });
+        console.log(`[${AGENT_NAME}] Intelligence extraction completed via AI/ML API (GPT-4o)`);
+      } catch (aimlErr) {
+        console.warn(`[${AGENT_NAME}] AI/ML API extraction failed, falling back to Gemini: ${aimlErr}`);
+        throw aimlErr; // Will be caught by outer catch to fallback
+      }
+    } else {
+      throw new Error("AI/ML API key not available, using Gemini");
+    }
+  } catch (err) {
+    // Fallback to Gemini
+    console.log(`[${AGENT_NAME}] Using Gemini fallback for extraction`);
+    raw = await geminiJson<any>(prompt, schema, {
+      model: selectedModel,
+      temperature: temp,
+      maxOutputTokens: 6144,
+      retries: 3,
+    });
+    console.log(`[${AGENT_NAME}] Intelligence extraction completed via Gemini (fallback)`);
+  }
 
   return {
     key_facts: raw.key_facts || [],
