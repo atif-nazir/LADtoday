@@ -8,12 +8,18 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
+import { Progress } from "@/components/ui/progress";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
-  Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger,
+  Sheet, SheetContent, SheetHeader, SheetTitle,
 } from "@/components/ui/sheet";
 import { useIsAdmin } from "@/hooks/useAdmin";
-import { Menu, Play, Square, RefreshCw, Workflow, Activity, Server, DollarSign, CalendarDays, TrendingUp, Users, HardDrive, Bell } from "lucide-react";
+import {
+  Menu, Play, Square, RefreshCw, Workflow, Activity, Server,
+  DollarSign, CalendarDays, TrendingUp, Users, HardDrive, Bell,
+  Globe, Brain, FileText, Search, Eye, Cpu, Shield, Zap,
+  BarChart3, CheckCircle, AlertTriangle, XCircle, ExternalLink,
+} from "lucide-react";
 import { toast } from "@/hooks/use-toast";
 import { PipelineHealthTab } from "@/components/pipeline/PipelineHealthTab";
 import { SystemHealthTab } from "@/components/pipeline/SystemHealthTab";
@@ -36,16 +42,36 @@ interface RunRow {
   agent_states: Record<string, any>; total_tokens: number;
   estimated_cost_usd: number; duration_ms: number | null;
   error: string | null; created_at: string; finished_at: string | null;
+  pipeline_progress?: number; pipeline_message?: string; mode?: string;
 }
 
+// ---------- 10-Agent pipeline definition ----------
+const TEN_AGENTS = [
+  { key: "scout",           label: "Scout",        icon: Globe,     color: "text-orange-500", phase: "DISCOVER", tool: "Bright Data SERP + Unlocker" },
+  { key: "intelligence",    label: "Intelligence", icon: Brain,     color: "text-violet-500", phase: "DISCOVER", tool: "AI/ML API GPT-4o + Cognee"   },
+  { key: "rewrite",         label: "Rewrite",      icon: FileText,  color: "text-cyan-500",   phase: "CREATE",   tool: "Gemini Flash"                 },
+  { key: "seo",             label: "SEO",          icon: Search,    color: "text-emerald-500",phase: "CREATE",   tool: "Bright Data SERP API"         },
+  { key: "vision",          label: "Vision",       icon: Eye,       color: "text-pink-500",   phase: "CREATE",   tool: "Gemini Flash"                 },
+  { key: "creative",        label: "Creative",     icon: Cpu,       color: "text-rose-500",   phase: "CREATE",   tool: "Gemini Pro"                   },
+  { key: "guardian",        label: "Guardian",     icon: Shield,    color: "text-amber-500",  phase: "REVIEW",   tool: "Bright Data + Lobster Trap"   },
+  { key: "publish",         label: "Publish",      icon: Zap,       color: "text-indigo-500", phase: "PUBLISH",  tool: "TriggerWare.ai + WordPress"   },
+  { key: "analytics",       label: "Analytics",    icon: BarChart3, color: "text-sky-500",    phase: "OPERATE",  tool: "Cognee Memory"                },
+  { key: "account-manager", label: "Acct Mgr",     icon: Users,     color: "text-lime-500",   phase: "OPERATE",  tool: "Bright Data Scraper API"      },
+] as const;
+
+type TrackMode = "gtm" | "finance" | "security";
+const TRACK_LABELS: Record<TrackMode, string> = {
+  gtm:      "GTM Intelligence",
+  finance:  "Finance & Market",
+  security: "Security & Compliance",
+};
+
 const PHASES: { key: string; label: string }[] = [
-  { key: "discover",   label: "Discover" },
-  { key: "analyze",    label: "Analyze" },
-  { key: "create",     label: "Create" },
-  { key: "multimedia", label: "Multimedia" },
-  { key: "distribute", label: "Distribute" },
-  { key: "monetize",   label: "Monetize" },
-  { key: "operate",    label: "Operate" },
+  { key: "DISCOVER", label: "Discover" },
+  { key: "CREATE",   label: "Create"   },
+  { key: "REVIEW",   label: "Review"   },
+  { key: "PUBLISH",  label: "Publish"  },
+  { key: "OPERATE",  label: "Operate"  },
 ];
 
 function statusColor(status?: string) {
@@ -118,6 +144,7 @@ function NewRunForm({ onStarted }: { onStarted: (id: string) => void }) {
   const [topic, setTopic] = useState("");
   const [voice, setVoice] = useState("professional");
   const [language, setLanguage] = useState("english");
+  const [mode, setMode] = useState<TrackMode>("gtm");
   const [url, setUrl] = useState("");
   const [pdfFile, setPdfFile] = useState<File | null>(null);
   const [imageFile, setImageFile] = useState<File | null>(null);
@@ -175,7 +202,8 @@ function NewRunForm({ onStarted }: { onStarted: (id: string) => void }) {
           action: "start", 
           topic: finalTopic, 
           brand_voice: voice, 
-          language, 
+          language,
+          mode,
           input_type, 
           input_payload,
           model_overrides: modelOverrides
@@ -223,6 +251,7 @@ function NewRunForm({ onStarted }: { onStarted: (id: string) => void }) {
               onChange={(e) => setImageFile(e.target.files?.[0] || null)} />
             {imageFile ? `🖼 ${imageFile.name}` : "Attach Image"}
           </label>
+        </div>
         <div>
           <Label className="text-[10px] uppercase tracking-wide text-muted-foreground">Discovery method (Scout)</Label>
           <select value={discoveryMethod} onChange={(e) => setDiscoveryMethod(e.target.value as any)}
@@ -234,6 +263,25 @@ function NewRunForm({ onStarted }: { onStarted: (id: string) => void }) {
           </select>
         </div>
       </div>
+
+      <div className="border-t border-border pt-3">
+        <Label className="text-[10px] uppercase tracking-wide text-muted-foreground">Track / Mode</Label>
+        <div className="grid grid-cols-3 gap-1.5 mt-1">
+          {(["gtm", "finance", "security"] as TrackMode[]).map((t) => (
+            <button
+              key={t}
+              type="button"
+              onClick={() => setMode(t)}
+              className={`text-xs px-2 py-1.5 rounded border transition-colors ${
+                mode === t
+                  ? "border-primary bg-primary/10 text-primary font-medium"
+                  : "border-border text-muted-foreground hover:bg-muted/40"
+              }`}
+            >
+              {TRACK_LABELS[t]}
+            </button>
+          ))}
+        </div>
       </div>
 
       <div className="grid grid-cols-2 gap-3">
@@ -428,8 +476,22 @@ function RunsList({ onSelect, selectedId }: { onSelect: (id: string) => void; se
             <div className="mt-1 flex items-center gap-2 text-[10px] text-muted-foreground">
               <span className={`px-1.5 py-0.5 rounded border ${statusColor(r.status)}`}>{r.status}</span>
               {r.current_phase && <span>{r.current_phase}</span>}
+              {r.mode && <span className="px-1 py-0.5 rounded bg-muted text-[9px]">{r.mode}</span>}
               <span className="ml-auto">{new Date(r.created_at).toLocaleTimeString()}</span>
             </div>
+            {r.status === "running" && typeof r.pipeline_progress === "number" && r.pipeline_progress > 0 && (
+              <div className="mt-1.5">
+                <div className="w-full bg-muted rounded-full h-1 overflow-hidden">
+                  <div
+                    className="h-1 rounded-full bg-primary transition-all duration-500"
+                    style={{ width: `${r.pipeline_progress}%` }}
+                  />
+                </div>
+                {r.pipeline_message && (
+                  <div className="text-[9px] text-muted-foreground mt-0.5 truncate">{r.pipeline_message}</div>
+                )}
+              </div>
+            )}
           </button>
         ))}
       </div>
@@ -499,21 +561,87 @@ function RunDetail({ runId }: { runId: string }) {
 
   return (
     <div className="space-y-4">
-      <div className="border border-border rounded-lg p-4 bg-card">
+      <div className="border border-border rounded-lg p-4 bg-card space-y-3">
         <div className="flex items-start gap-3">
           <div className="flex-1 min-w-0">
             <div className="text-sm font-medium truncate">{run?.topic || "—"}</div>
-            <div className="mt-1 flex items-center gap-2 text-xs text-muted-foreground">
+            <div className="mt-1 flex items-center gap-2 text-xs text-muted-foreground flex-wrap">
               <span className={`px-1.5 py-0.5 rounded border ${statusColor(run?.status)}`}>{run?.status || "…"}</span>
               {run?.current_phase && <span>phase: {run.current_phase}</span>}
+              {run?.mode && <span className="px-1.5 py-0.5 rounded bg-muted text-[10px]">{TRACK_LABELS[run.mode as TrackMode] ?? run.mode}</span>}
               <span>tokens: {run?.total_tokens || 0}</span>
               <span>cost: ${Number(run?.estimated_cost_usd || 0).toFixed(4)}</span>
+              {/* Guardian verdict badge */}
+              {(() => {
+                const verdict = states["guardian"]?.final_verdict;
+                if (!verdict) return null;
+                const cfg = verdict === "APPROVED"
+                  ? { icon: CheckCircle, cls: "text-green-600 border-green-200 bg-green-50 dark:bg-green-950/30 dark:border-green-800 dark:text-green-400" }
+                  : verdict === "FLAGGED"
+                  ? { icon: AlertTriangle, cls: "text-amber-600 border-amber-200 bg-amber-50 dark:bg-amber-950/30 dark:border-amber-800 dark:text-amber-400" }
+                  : { icon: XCircle, cls: "text-red-600 border-red-200 bg-red-50 dark:bg-red-950/30 dark:border-red-800 dark:text-red-400" };
+                const Icon = cfg.icon;
+                return (
+                  <span className={`flex items-center gap-1 px-1.5 py-0.5 rounded border text-[10px] font-medium ${cfg.cls}`}>
+                    <Icon className="w-3 h-3" />{verdict}
+                  </span>
+                );
+              })()}
             </div>
             {run?.error && <div className="mt-2 text-xs text-red-600">{run.error}</div>}
           </div>
           <Button size="sm" variant="outline" onClick={step}><RefreshCw className="w-3 h-3 mr-1" />Step</Button>
           <Button size="sm" variant="default" onClick={writePreview} disabled={previewBusy}>{previewBusy ? "Writing…" : "Write preview"}</Button>
           <Button size="sm" variant="outline" onClick={cancel}><Square className="w-3 h-3 mr-1" />Cancel</Button>
+        </div>
+
+        {/* Pipeline progress bar */}
+        {typeof run?.pipeline_progress === "number" && run.pipeline_progress > 0 && (
+          <div>
+            <div className="flex items-center justify-between mb-1">
+              <span className="text-[10px] text-muted-foreground truncate max-w-xs">{run.pipeline_message || "Running…"}</span>
+              <span className="text-[10px] font-medium tabular-nums">{run.pipeline_progress}%</span>
+            </div>
+            <div className="w-full bg-muted rounded-full h-1.5 overflow-hidden">
+              <div
+                className="h-1.5 rounded-full bg-primary transition-all duration-500"
+                style={{ width: `${run.pipeline_progress}%` }}
+              />
+            </div>
+          </div>
+        )}
+
+        {/* 10-agent live strip */}
+        <div className="grid grid-cols-5 sm:grid-cols-10 gap-1.5 pt-1">
+          {TEN_AGENTS.map((agent) => {
+            const st = states[agent.key]?.status;
+            const isDone = st === "completed";
+            const isRunning = st === "running";
+            const isFailed = st === "failed";
+            const Icon = agent.icon;
+            return (
+              <div
+                key={agent.key}
+                title={`${agent.label} — ${agent.tool}\nStatus: ${st || "pending"}`}
+                className={`flex flex-col items-center gap-1 p-1.5 rounded border text-center transition-colors ${
+                  isDone    ? "border-green-200 bg-green-50 dark:border-green-800 dark:bg-green-950/20"
+                  : isRunning ? "border-primary/50 bg-primary/5 animate-pulse"
+                  : isFailed  ? "border-red-200 bg-red-50 dark:border-red-800 dark:bg-red-950/20"
+                  : "border-border bg-muted/20"
+                }`}
+              >
+                <Icon className={`w-3.5 h-3.5 ${
+                  isDone    ? "text-green-600 dark:text-green-400"
+                  : isRunning ? "text-primary"
+                  : isFailed  ? "text-red-500"
+                  : "text-muted-foreground"
+                }`} />
+                <span className="text-[8px] leading-tight text-muted-foreground truncate w-full text-center">
+                  {agent.label}
+                </span>
+              </div>
+            );
+          })}
         </div>
       </div>
 
@@ -649,7 +777,7 @@ export default function AdminPipeline() {
         <Tabs defaultValue="runs">
           <TabsList className="flex flex-wrap gap-1 h-auto p-1">
             <TabsTrigger value="runs" className="text-xs gap-1"><Play className="w-3 h-3" />Runs</TabsTrigger>
-            <TabsTrigger value="registry" className="text-xs gap-1"><Workflow className="w-3 h-3" />Agents (50)</TabsTrigger>
+            <TabsTrigger value="registry" className="text-xs gap-1"><Workflow className="w-3 h-3" />Agents (10)</TabsTrigger>
             <TabsTrigger value="pipeline-health" className="text-xs gap-1"><Activity className="w-3 h-3" />Health</TabsTrigger>
             <TabsTrigger value="system-health" className="text-xs gap-1"><Server className="w-3 h-3" />System</TabsTrigger>
             <TabsTrigger value="costs" className="text-xs gap-1"><DollarSign className="w-3 h-3" />Costs</TabsTrigger>

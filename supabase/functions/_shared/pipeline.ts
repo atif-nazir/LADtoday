@@ -29,6 +29,9 @@ export interface RunRow {
   status: string;
   enabled_agents: string[] | null;
   agent_states: Record<string, any>;
+  pipeline_progress?: number;
+  pipeline_message?: string;
+  model_overrides?: Record<string, string>;
 }
 
 export async function loadRegistry(): Promise<AgentRow[]> {
@@ -167,38 +170,39 @@ export function isTerminal(run: RunRow, registry: AgentRow[]): { done: boolean; 
 
 /// Map DAG keys to actual edge function directory names (simplified folder names).
 const SHORT_TO_FN: Record<string, string> = {
-  // Phase 1: DISCOVER
-  "scout": "scout", "intelligence": "intelligence",
+  // ── 10-Agent Hackathon Pipeline (primary) ──
+  "scout": "scout",
+  "intelligence": "intelligence",
+  "rewrite": "rewrite",
+  "seo": "seo",
+  "vision": "vision",
+  "creative": "creative",
+  "guardian": "guardian",
+  "publish": "publish",
+  "analytics": "analytics",
+  "account-manager": "account-manager",
+  // ── Legacy 50-agent keys (kept for backward compat) ──
   "trend-forecaster": "trend-forecaster", "competitor-intel": "competitor-intel",
   "audience-listener": "audience-listener", "news-wire": "news-wire",
   "research": "research",
-  // Phase 2: ANALYZE
   "fact-checker": "fact-checker", "bias-detector": "bias-detector",
   "story-arc": "story-arc", "quote-extractor": "quote-extractor",
   "tone-calibrator": "tone-calibrator", "localization": "localization",
   "headline-optimizer": "headline-optimizer",
-  // Phase 3: CREATE
-  "rewrite": "rewrite", "vision": "vision", "seo": "seo",
   "readability": "readability", "internal-linker": "internal-linker",
   "schema-markup": "schema-markup", "excerpt": "excerpt",
-  // Phase 4: MULTIMEDIA
   "creative": "creative", "infographic": "infographic",
   "podcast-script": "podcast-script", "video-script": "video-script",
   "short-form": "short-form", "thread": "thread", "carousel": "carousel",
   "newsletter": "newsletter", "whatsapp-broadcast": "whatsapp-broadcast",
   "data-viz": "data-viz",
-  // Phase 5: DISTRIBUTE
-  "account-manager": "account-manager", "publish": "publish",
   "timing-intelligence": "timing-intelligence",
   "hashtag-strategy": "hashtag-strategy", "cross-platform": "cross-platform",
   "community": "community", "influencer-radar": "influencer-radar",
   "performance-predictor": "performance-predictor", "syndication": "syndication",
-  // Phase 6: MONETIZE
   "adsense-optimizer": "adsense-optimizer", "affiliate-detector": "affiliate-detector",
   "lead-magnet": "lead-magnet", "content-calendar": "content-calendar",
   "revenue-intelligence": "revenue-intelligence",
-  // Phase 7: OPERATE
-  "analytics": "analytics", "guardian": "guardian",
   "content-refresh": "content-refresh", "brand-safety": "brand-safety",
   "knowledge-base": "knowledge-base",
 };
