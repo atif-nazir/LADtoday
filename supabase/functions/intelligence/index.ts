@@ -1,6 +1,6 @@
 // ============================================================
 // Agent 02 — Intelligence Agent
-// Phase: DISCOVER | Model: gemini-2.5-pro | Depends on: scout
+// Phase: DISCOVER | Model: AI/ML API GPT-4o | Depends on: scout
 // ============================================================
 // LEARNING: Reads past run virality scores from agent_memory.
 // Adapts angle-selection strategy based on what performed best.
@@ -9,8 +9,7 @@
 // ============================================================
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { geminiJson, GeminiError } from "../_shared/gemini.ts";
-import { generateJSON, getAvailableProviders } from "../_shared/ai-provider.ts";
+import { geminiJson } from "../_shared/gemini.ts";
 import { insertLog } from "../_shared/logger.ts";
 import {
   writeAgentOutput, readAgentOutput, patchAgentState, loadRun,
@@ -18,7 +17,7 @@ import {
 import { selectModelForAgent } from "../_shared/model-config.ts";
 import { 
   hasAIMLAPIKey, 
-  aimlIntelligenceAnalysis 
+  aimlIntelligenceAnalysis
 } from "../_shared/aimlapi.ts";
 import { 
   hasCogneeKey, 
@@ -463,20 +462,15 @@ IMPORTANT: You MUST populate all properties in the schema with valid, non-empty,
   // Dynamic temperature: lower when learning says to be precise, higher when exploring
   const temp = learning.totalRunsLearned > 10 ? 0.5 : 0.65;
 
-  // Use unified AI provider with fallback support
-  const result = await generateJSON<any>(prompt, schema, {
+  // Use Gemini for JSON extraction (with proper error handling for quota)
+  const raw = await geminiJson<any>(prompt, schema, {
+    model: selectedModel,
     temperature: temp,
-    max_tokens: 6144,
-    allowFallback: true,
-    onFallback: (reason, provider) => {
-      console.log(`[${AGENT_NAME}] Fallback triggered: ${reason} → using ${provider}`);
-    }
+    maxOutputTokens: 6144,
+    retries: 3,
   });
 
-  const raw = result.data;
-  
-  // Log which provider was used
-  console.log(`[${AGENT_NAME}] Intelligence extraction completed via ${result.provider} (retried: ${result.retried || false})`);
+  console.log(`[${AGENT_NAME}] Intelligence extraction completed via Gemini`);
 
   return {
     key_facts: raw.key_facts || [],
