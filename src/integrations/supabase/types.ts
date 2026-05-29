@@ -453,9 +453,15 @@ export type Database = {
       }
       articles: {
         Row: {
+          affiliate_opportunities: Json | null
+          ai_content: string | null
+          ai_generated_at: string | null
           ai_rewrite_count: number
           ai_rewrite_status: string
+          ai_summary: string | null
+          ai_tags: string[] | null
           ai_thumbnail_url: string | null
+          ai_title: string | null
           author_avatar: string | null
           author_bio: string | null
           author_facebook: string | null
@@ -463,39 +469,61 @@ export type Database = {
           author_linkedin: string | null
           author_name: string
           author_twitter: string | null
+          carousel_spec: Json | null
           category_id: string
           conclusion: string | null
           created_at: string
+          data_chart_html: string | null
           date: string
           fb_caption: string | null
           fb_post_id: string | null
           fb_posted: boolean | null
           fb_posted_at: string | null
+          fb_status: string | null
           hashtags_facebook: string[] | null
           hashtags_master: string[] | null
           hashtags_twitter: string[] | null
           id: string
           image: string
+          infographic_spec: Json | null
           introduction: string | null
           last_refreshed: string | null
+          lead_magnet_content: string | null
+          newsletter_html: string | null
           old_article_id: string | null
+          performance_forecast: Json | null
+          podcast_script: string | null
           published: boolean
+          published_platforms: string[] | null
           read_time: string
           refresh_count: number | null
           refreshed_at: string | null
+          revenue_report: Json | null
+          scheduled_posts: Json | null
           sections: Json
+          short_form_variants: Json | null
           slug: string
           source_id: string | null
           subtitle: string | null
+          syndication_status: Json | null
           tags: string[] | null
+          thread_tweets: Json | null
           title: string
           updated_at: string
+          video_script: string | null
           view_count: number | null
+          whatsapp_content: Json | null
         }
         Insert: {
+          affiliate_opportunities?: Json | null
+          ai_content?: string | null
+          ai_generated_at?: string | null
           ai_rewrite_count?: number
           ai_rewrite_status?: string
+          ai_summary?: string | null
+          ai_tags?: string[] | null
           ai_thumbnail_url?: string | null
+          ai_title?: string | null
           author_avatar?: string | null
           author_bio?: string | null
           author_facebook?: string | null
@@ -503,39 +531,61 @@ export type Database = {
           author_linkedin?: string | null
           author_name: string
           author_twitter?: string | null
+          carousel_spec?: Json | null
           category_id: string
           conclusion?: string | null
           created_at?: string
+          data_chart_html?: string | null
           date: string
           fb_caption?: string | null
           fb_post_id?: string | null
           fb_posted?: boolean | null
           fb_posted_at?: string | null
+          fb_status?: string | null
           hashtags_facebook?: string[] | null
           hashtags_master?: string[] | null
           hashtags_twitter?: string[] | null
           id?: string
           image: string
+          infographic_spec?: Json | null
           introduction?: string | null
           last_refreshed?: string | null
+          lead_magnet_content?: string | null
+          newsletter_html?: string | null
           old_article_id?: string | null
+          performance_forecast?: Json | null
+          podcast_script?: string | null
           published?: boolean
+          published_platforms?: string[] | null
           read_time: string
           refresh_count?: number | null
           refreshed_at?: string | null
+          revenue_report?: Json | null
+          scheduled_posts?: Json | null
           sections?: Json
+          short_form_variants?: Json | null
           slug: string
           source_id?: string | null
           subtitle?: string | null
+          syndication_status?: Json | null
           tags?: string[] | null
+          thread_tweets?: Json | null
           title: string
           updated_at?: string
+          video_script?: string | null
           view_count?: number | null
+          whatsapp_content?: Json | null
         }
         Update: {
+          affiliate_opportunities?: Json | null
+          ai_content?: string | null
+          ai_generated_at?: string | null
           ai_rewrite_count?: number
           ai_rewrite_status?: string
+          ai_summary?: string | null
+          ai_tags?: string[] | null
           ai_thumbnail_url?: string | null
+          ai_title?: string | null
           author_avatar?: string | null
           author_bio?: string | null
           author_facebook?: string | null
@@ -543,34 +593,50 @@ export type Database = {
           author_linkedin?: string | null
           author_name?: string
           author_twitter?: string | null
+          carousel_spec?: Json | null
           category_id?: string
           conclusion?: string | null
           created_at?: string
+          data_chart_html?: string | null
           date?: string
           fb_caption?: string | null
           fb_post_id?: string | null
           fb_posted?: boolean | null
           fb_posted_at?: string | null
+          fb_status?: string | null
           hashtags_facebook?: string[] | null
           hashtags_master?: string[] | null
           hashtags_twitter?: string[] | null
           id?: string
           image?: string
+          infographic_spec?: Json | null
           introduction?: string | null
           last_refreshed?: string | null
+          lead_magnet_content?: string | null
+          newsletter_html?: string | null
           old_article_id?: string | null
+          performance_forecast?: Json | null
+          podcast_script?: string | null
           published?: boolean
+          published_platforms?: string[] | null
           read_time?: string
           refresh_count?: number | null
           refreshed_at?: string | null
+          revenue_report?: Json | null
+          scheduled_posts?: Json | null
           sections?: Json
+          short_form_variants?: Json | null
           slug?: string
           source_id?: string | null
           subtitle?: string | null
+          syndication_status?: Json | null
           tags?: string[] | null
+          thread_tweets?: Json | null
           title?: string
           updated_at?: string
+          video_script?: string | null
           view_count?: number | null
+          whatsapp_content?: Json | null
         }
         Relationships: [
           {
@@ -810,10 +876,12 @@ export type Database = {
           access_token: string
           auto_post: boolean
           created_at: string
+          default_post_type: string | null
           id: string
           is_active: boolean
           page_id: string
           page_name: string
+          thumbnail_template: string | null
           thumbnail_theme: string
           updated_at: string
         }
@@ -821,10 +889,12 @@ export type Database = {
           access_token: string
           auto_post?: boolean
           created_at?: string
+          default_post_type?: string | null
           id?: string
           is_active?: boolean
           page_id: string
           page_name: string
+          thumbnail_template?: string | null
           thumbnail_theme?: string
           updated_at?: string
         }
@@ -832,10 +902,12 @@ export type Database = {
           access_token?: string
           auto_post?: boolean
           created_at?: string
+          default_post_type?: string | null
           id?: string
           is_active?: boolean
           page_id?: string
           page_name?: string
+          thumbnail_template?: string | null
           thumbnail_theme?: string
           updated_at?: string
         }
@@ -1352,6 +1424,7 @@ export type Database = {
           name: string
           scraping_method: string | null
           selectors: Json | null
+          thumbnail_template: string | null
           thumbnail_theme: string | null
           updated_at: string | null
           url: string
@@ -1366,6 +1439,7 @@ export type Database = {
           name: string
           scraping_method?: string | null
           selectors?: Json | null
+          thumbnail_template?: string | null
           thumbnail_theme?: string | null
           updated_at?: string | null
           url: string
@@ -1380,6 +1454,7 @@ export type Database = {
           name?: string
           scraping_method?: string | null
           selectors?: Json | null
+          thumbnail_template?: string | null
           thumbnail_theme?: string | null
           updated_at?: string | null
           url?: string
