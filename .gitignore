@@ -27,3 +27,6 @@ dist-ssr
 lucid-vista-log/
 edge-deploy-bundles.json
 deploy-one.json
+
+# Hackathon documentation (internal only)
+hackathon/docs/

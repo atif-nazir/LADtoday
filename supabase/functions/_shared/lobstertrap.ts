@@ -1,222 +1,256 @@
-// Lobster Trap — lightweight guard layer wrapping Gemini calls.
-// Runs cheap heuristic checks (injection, PII), logs to lobstertrap_audit.
-// Drop-in replacements for geminiText / geminiJson that ALSO take run/agent context.
+// ============================================================
+// Lobster Trap DPI Proxy
+// Intercepts all AI prompts for prompt injection detection
+// Part of Guardian Agent security layer
+// ============================================================
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import {
-  GeminiError,
-  GEMINI_TEXT_MODEL,
-  geminiJson,
-  geminiText,
-} from "./gemini.ts";
 
 const supabase = createClient(
   Deno.env.get("SUPABASE_URL")!,
   Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
 );
 
-export interface GuardContext {
-  runId?: string | null;
-  agentKey: string;
-  model?: string;
+export interface LobsterTrapResult {
+  safe: boolean;
+  injection_detected: boolean;
+  sanitized_prompt: string;
+  threats: string[];
+  severity: "none" | "low" | "medium" | "high" | "critical";
+  blocked: boolean;
 }
 
-const INJECTION_PATTERNS: RegExp[] = [
-  /ignore (all |the )?(previous|prior|above) instructions/i,
-  /disregard (all |the )?(previous|prior|above)/i,
-  /you are now (a |an )?[a-z ]+ (assistant|ai|bot)/i,
-  /system prompt[:\s]/i,
-  /<\/?\|im_(start|end)\|>/i,
-  /\bjailbreak\b/i,
-  /reveal (your|the) (system )?prompt/i,
+// Prompt injection patterns (ordered by severity)
+const INJECTION_PATTERNS = {
+  critical: [
+    /ignore\s+(all\s+)?previous\s+instructions?/i,
+    /forget\s+(everything|all|your\s+instructions?)/i,
+    /you\s+are\s+now\s+(a|an)\s+/i,
+    /new\s+instructions?:/i,
+    /system\s+prompt\s*:/i,
+    /reveal\s+your\s+(instructions?|prompt|system)/i,
+  ],
+  high: [
+    /jailbreak/i,
+    /act\s+as\s+(if\s+)?you\s+(are|were)/i,
+    /pretend\s+(you\s+are|to\s+be)/i,
+    /roleplay\s+as/i,
+    /simulate\s+(being|a)/i,
+  ],
+  medium: [
+    /bypass\s+(security|safety|filter)/i,
+    /override\s+(instructions?|rules?|guidelines?)/i,
+    /disregard\s+(previous|all|your)/i,
+    /admin\s+mode/i,
+    /developer\s+mode/i,
+  ],
+  low: [
+    /tell\s+me\s+your\s+prompt/i,
+    /what\s+(are|is)\s+your\s+instructions?/i,
+    /show\s+me\s+your\s+system/i,
+  ],
+};
+
+// Additional suspicious patterns
+const SUSPICIOUS_PATTERNS = [
+  /\[SYSTEM\]/i,
+  /\[ADMIN\]/i,
+  /\[ROOT\]/i,
+  /<\|im_start\|>/i,
+  /<\|im_end\|>/i,
+  /\{system\}/i,
 ];
 
-const PII_CHECKS: { type: string; re: RegExp }[] = [
-  { type: "email", re: /[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}/i },
-  { type: "phone", re: /(\+?\d{1,3}[ -]?)?\(?\d{3}\)?[ -]?\d{3,4}[ -]?\d{4}/ },
-  { type: "cnic", re: /\b\d{5}-\d{7}-\d\b/ },                 // Pakistani CNIC
-  { type: "credit_card", re: /\b(?:\d[ -]*?){13,16}\b/ },
-];
+function detectInjection(prompt: string): {
+  detected: boolean;
+  threats: string[];
+  severity: "none" | "low" | "medium" | "high" | "critical";
+} {
+  const threats: string[] = [];
+  let maxSeverity: "none" | "low" | "medium" | "high" | "critical" = "none";
 
-export function scanPrompt(prompt: string) {
-  const sample = prompt.slice(0, 8000);
-  const injection_detected = INJECTION_PATTERNS.some((re) => re.test(sample));
-  const pii_types: string[] = [];
-  for (const { type, re } of PII_CHECKS) if (re.test(sample)) pii_types.push(type);
-  const pii_detected = pii_types.length > 0;
-
-  let risk = 0;
-  if (injection_detected) risk += 0.6;
-  if (pii_detected) risk += 0.3;
-  risk = Math.min(1, risk);
-  return { injection_detected, pii_detected, pii_types, risk_score: risk };
-}
-
-async function logAudit(row: Record<string, any>) {
-  try {
-    await supabase.from("lobstertrap_audit").insert(row);
-  } catch (e) {
-    console.error("lobstertrap audit insert failed", e);
+  // Check critical patterns first
+  for (const pattern of INJECTION_PATTERNS.critical) {
+    if (pattern.test(prompt)) {
+      threats.push(`CRITICAL: ${pattern.source}`);
+      maxSeverity = "critical";
+    }
   }
+
+  // Check high severity
+  if (maxSeverity !== "critical") {
+    for (const pattern of INJECTION_PATTERNS.high) {
+      if (pattern.test(prompt)) {
+        threats.push(`HIGH: ${pattern.source}`);
+        if (maxSeverity !== "high") maxSeverity = "high";
+      }
+    }
+  }
+
+  // Check medium severity
+  if (maxSeverity !== "critical" && maxSeverity !== "high") {
+    for (const pattern of INJECTION_PATTERNS.medium) {
+      if (pattern.test(prompt)) {
+        threats.push(`MEDIUM: ${pattern.source}`);
+        if (maxSeverity !== "medium") maxSeverity = "medium";
+      }
+    }
+  }
+
+  // Check low severity
+  if (maxSeverity === "none") {
+    for (const pattern of INJECTION_PATTERNS.low) {
+      if (pattern.test(prompt)) {
+        threats.push(`LOW: ${pattern.source}`);
+        maxSeverity = "low";
+      }
+    }
+  }
+
+  // Check suspicious patterns
+  for (const pattern of SUSPICIOUS_PATTERNS) {
+    if (pattern.test(prompt)) {
+      threats.push(`SUSPICIOUS: ${pattern.source}`);
+      if (maxSeverity === "none") maxSeverity = "low";
+    }
+  }
+
+  return {
+    detected: threats.length > 0,
+    threats,
+    severity: maxSeverity,
+  };
 }
 
-async function decideAction(scan: ReturnType<typeof scanPrompt>) {
-  // Read policy from settings (best-effort; default deny on injection).
-  let denyInjection = true;
-  let quarantinePii = false;
-  try {
-    const { data } = await supabase
-      .from("settings")
-      .select("value")
-      .eq("key", "guardian_policy")
-      .maybeSingle();
-    const policy = data?.value as any;
-    if (policy?.deny_injection === false) denyInjection = false;
-    if (policy?.quarantine_pii === true) quarantinePii = true;
-  } catch { /* ignore */ }
-
-  if (scan.injection_detected && denyInjection) return "DENY";
-  if (scan.pii_detected && quarantinePii) return "QUARANTINE";
-  if (scan.risk_score > 0.3) return "LOG";
-  return "ALLOW";
+function hashPrompt(prompt: string): string {
+  // Create a simple hash for audit trail (don't store full prompts for privacy)
+  const preview = prompt.slice(0, 100).replace(/\s+/g, " ");
+  return `${preview}... [${prompt.length} chars]`;
 }
 
-export async function guardedGeminiText(
+/**
+ * Lobster Trap DPI Proxy
+ * Intercepts and analyzes prompts before they reach AI models
+ * Blocks critical/high severity injections, logs all attempts
+ */
+export async function lobsterTrapProxy(
   prompt: string,
-  ctx: GuardContext,
-  opts?: Parameters<typeof geminiText>[1]
-): Promise<string> {
-  const startedAt = Date.now();
-  const scan = scanPrompt(prompt);
-  const action = await decideAction(scan);
-  const model = opts?.model || ctx.model || GEMINI_TEXT_MODEL;
-
-  if (action === "DENY") {
-    await logAudit({
-      run_id: ctx.runId ?? null,
-      agent_key: ctx.agentKey,
-      model,
-      prompt_preview: prompt.slice(0, 240),
-      prompt_tokens: Math.ceil(prompt.length / 4),
-      response_tokens: 0,
-      injection_detected: scan.injection_detected,
-      pii_detected: scan.pii_detected,
-      pii_types: scan.pii_types,
-      risk_score: scan.risk_score,
-      action_taken: action,
-      verdict: "BLOCKED",
-      latency_ms: Date.now() - startedAt,
-      error: "Blocked by Lobster Trap (injection)",
-    });
-    throw new GeminiError("Blocked by Lobster Trap (injection detected)", 451, "blocked");
+  context?: {
+    run_id?: string;
+    agent_key?: string;
+    model?: string;
   }
-
+): Promise<LobsterTrapResult> {
+  const { detected, threats, severity } = detectInjection(prompt);
+  
+  // Block critical and high severity injections
+  const blocked = severity === "critical" || severity === "high";
+  
+  // Log to audit table (non-blocking, best effort)
   try {
-    const text = await geminiText(prompt, opts);
-    await logAudit({
-      run_id: ctx.runId ?? null,
-      agent_key: ctx.agentKey,
-      model,
-      prompt_preview: prompt.slice(0, 240),
-      prompt_tokens: Math.ceil(prompt.length / 4),
-      response_tokens: Math.ceil(text.length / 4),
-      injection_detected: scan.injection_detected,
-      pii_detected: scan.pii_detected,
-      pii_types: scan.pii_types,
-      risk_score: scan.risk_score,
-      action_taken: action,
-      verdict: "APPROVED",
-      latency_ms: Date.now() - startedAt,
+    await supabase.from("lobstertrap_audit").insert({
+      run_id: context?.run_id || null,
+      agent_key: context?.agent_key || "unknown",
+      model: context?.model || "unknown",
+      prompt_hash: hashPrompt(prompt),
+      injection_detected: detected,
+      threats: threats,
+      severity: severity,
+      blocked: blocked,
+      created_at: new Date().toISOString(),
     });
-    return text;
-  } catch (e) {
-    await logAudit({
-      run_id: ctx.runId ?? null,
-      agent_key: ctx.agentKey,
-      model,
-      prompt_preview: prompt.slice(0, 240),
-      prompt_tokens: Math.ceil(prompt.length / 4),
-      response_tokens: 0,
-      injection_detected: scan.injection_detected,
-      pii_detected: scan.pii_detected,
-      pii_types: scan.pii_types,
-      risk_score: scan.risk_score,
-      action_taken: action,
-      verdict: "REVIEW",
-      latency_ms: Date.now() - startedAt,
-      error: e instanceof Error ? e.message : String(e),
-    });
-    throw e;
+  } catch (err) {
+    console.error("[LobsterTrap] Failed to log audit:", err);
+    // Don't fail the request if logging fails
   }
+
+  const result: LobsterTrapResult = {
+    safe: !blocked,
+    injection_detected: detected,
+    sanitized_prompt: blocked ? "[BLOCKED BY LOBSTER TRAP]" : prompt,
+    threats,
+    severity,
+    blocked,
+  };
+
+  if (blocked) {
+    console.warn(`[LobsterTrap] 🚨 BLOCKED ${severity.toUpperCase()} injection attempt:`, threats[0]);
+  } else if (detected) {
+    console.warn(`[LobsterTrap] ⚠️ Detected ${severity.toUpperCase()} injection (allowed):`, threats[0]);
+  }
+
+  return result;
 }
 
-export async function guardedGeminiJson<T = any>(
-  prompt: string,
-  schema: Record<string, any>,
-  ctx: GuardContext,
-  opts?: Parameters<typeof geminiJson>[2]
-): Promise<T> {
-  const startedAt = Date.now();
-  const scan = scanPrompt(prompt);
-  const action = await decideAction(scan);
-  const model = opts?.model || ctx.model || GEMINI_TEXT_MODEL;
-
-  if (action === "DENY") {
-    await logAudit({
-      run_id: ctx.runId ?? null,
-      agent_key: ctx.agentKey,
-      model,
-      prompt_preview: prompt.slice(0, 240),
-      prompt_tokens: Math.ceil(prompt.length / 4),
-      response_tokens: 0,
-      injection_detected: scan.injection_detected,
-      pii_detected: scan.pii_detected,
-      pii_types: scan.pii_types,
-      risk_score: scan.risk_score,
-      action_taken: action,
-      verdict: "BLOCKED",
-      latency_ms: Date.now() - startedAt,
-      error: "Blocked by Lobster Trap (injection)",
-    });
-    throw new GeminiError("Blocked by Lobster Trap (injection detected)", 451, "blocked");
+/**
+ * Get recent Lobster Trap audit logs
+ */
+export async function getLobsterTrapLogs(limit = 50): Promise<any[]> {
+  const { data, error } = await supabase
+    .from("lobstertrap_audit")
+    .select("*")
+    .order("created_at", { ascending: false })
+    .limit(limit);
+  
+  if (error) {
+    console.error("[LobsterTrap] Failed to fetch logs:", error);
+    return [];
   }
+  
+  return data || [];
+}
 
+/**
+ * Get Lobster Trap statistics
+ */
+export async function getLobsterTrapStats(): Promise<{
+  total_checks: number;
+  injections_detected: number;
+  injections_blocked: number;
+  by_severity: Record<string, number>;
+  by_agent: Record<string, number>;
+}> {
   try {
-    const out = await geminiJson<T>(prompt, schema, opts);
-    const responseSize = JSON.stringify(out).length;
-    await logAudit({
-      run_id: ctx.runId ?? null,
-      agent_key: ctx.agentKey,
-      model,
-      prompt_preview: prompt.slice(0, 240),
-      prompt_tokens: Math.ceil(prompt.length / 4),
-      response_tokens: Math.ceil(responseSize / 4),
-      injection_detected: scan.injection_detected,
-      pii_detected: scan.pii_detected,
-      pii_types: scan.pii_types,
-      risk_score: scan.risk_score,
-      action_taken: action,
-      verdict: "APPROVED",
-      latency_ms: Date.now() - startedAt,
+    const { data, error } = await supabase
+      .from("lobstertrap_audit")
+      .select("injection_detected, blocked, severity, agent_key");
+    
+    if (error || !data) {
+      return {
+        total_checks: 0,
+        injections_detected: 0,
+        injections_blocked: 0,
+        by_severity: {},
+        by_agent: {},
+      };
+    }
+
+    const stats = {
+      total_checks: data.length,
+      injections_detected: data.filter(r => r.injection_detected).length,
+      injections_blocked: data.filter(r => r.blocked).length,
+      by_severity: {} as Record<string, number>,
+      by_agent: {} as Record<string, number>,
+    };
+
+    data.forEach(row => {
+      if (row.severity) {
+        stats.by_severity[row.severity] = (stats.by_severity[row.severity] || 0) + 1;
+      }
+      if (row.agent_key) {
+        stats.by_agent[row.agent_key] = (stats.by_agent[row.agent_key] || 0) + 1;
+      }
     });
-    return out;
-  } catch (e) {
-    await logAudit({
-      run_id: ctx.runId ?? null,
-      agent_key: ctx.agentKey,
-      model,
-      prompt_preview: prompt.slice(0, 240),
-      prompt_tokens: Math.ceil(prompt.length / 4),
-      response_tokens: 0,
-      injection_detected: scan.injection_detected,
-      pii_detected: scan.pii_detected,
-      pii_types: scan.pii_types,
-      risk_score: scan.risk_score,
-      action_taken: action,
-      verdict: "REVIEW",
-      latency_ms: Date.now() - startedAt,
-      error: e instanceof Error ? e.message : String(e),
-    });
-    throw e;
+
+    return stats;
+  } catch (err) {
+    console.error("[LobsterTrap] Failed to get stats:", err);
+    return {
+      total_checks: 0,
+      injections_detected: 0,
+      injections_blocked: 0,
+      by_severity: {},
+      by_agent: {},
+    };
   }
 }

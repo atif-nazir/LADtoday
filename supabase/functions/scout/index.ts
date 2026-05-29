@@ -12,6 +12,12 @@ import { geminiJson, GeminiError } from "../_shared/gemini.ts";
 import { insertLog } from "../_shared/logger.ts";
 import { writeAgentOutput, patchAgentState, loadRun } from "../_shared/pipeline.ts";
 import { selectModelForAgent } from "../_shared/model-config.ts";
+import { 
+  hasBrightDataCredentials, 
+  brightDataSERP, 
+  fetchWithBrightData,
+  type BrightDataSource 
+} from "../_shared/brightdata.ts";
 
 const AGENT_KEY = "scout";
 const AGENT_NAME = "Scout";
@@ -28,7 +34,7 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
-type DiscoveryMethod = "firecrawl" | "gemini_grounding" | "duckduckgo" | "url_fetch" | "pdf_extract";
+type DiscoveryMethod = "firecrawl" | "gemini_grounding" | "duckduckgo" | "url_fetch" | "pdf_extract" | "brightdata_serp" | "brightdata_unlocker" | "auto";
 
 interface RawSource { url: string; title: string; snippet: string; markdown?: string; }
 
@@ -204,9 +210,15 @@ async function discoverSources(
   let order: DiscoveryMethod[];
   if (preferred === "auto") {
     order = [];
+    // Prefer Bright Data if available
+    if (hasBrightDataCredentials()) order.push("brightdata_serp");
     if (FIRECRAWL_API_KEY) order.push("firecrawl");
     if (GEMINI_API_KEY) order.push("gemini_grounding");
     order.push("duckduckgo");
+  } else if (preferred === "brightdata_serp" || preferred === "brightdata_unlocker") {
+    // Bright Data methods
+    const all: DiscoveryMethod[] = ["brightdata_serp", "firecrawl", "gemini_grounding", "duckduckgo"];
+    order = [preferred, ...all.filter(m => m !== preferred)];
   } else {
     const all: DiscoveryMethod[] = ["firecrawl", "gemini_grounding", "duckduckgo"];
     order = [preferred, ...all.filter(m => m !== preferred)];
@@ -217,10 +229,35 @@ async function discoverSources(
   let raws: RawSource[] = [];
 
   for (const m of order) {
+    // Skip if credentials not available
+    if ((m === "brightdata_serp" || m === "brightdata_unlocker") && !hasBrightDataCredentials()) continue;
     if (m === "firecrawl" && !FIRECRAWL_API_KEY) continue;
+    
     tried.push(m);
     let r: RawSource[] = [];
-    if (m === "firecrawl") {
+    
+    if (m === "brightdata_serp") {
+      // Use Bright Data SERP API
+      const buckets = await Promise.all(queries.slice(0, 2).map(q => 
+        brightDataSERP(q, { geo: "pk", num: 6 })
+          .then(results => results.map(bd => ({
+            url: bd.url,
+            title: bd.title,
+            snippet: bd.snippet,
+            markdown: bd.markdown,
+          })))
+          .catch(err => {
+            console.error(`[Scout] Bright Data SERP failed:`, err);
+            return [];
+          })
+      ));
+      r = buckets.flat();
+    } else if (m === "brightdata_unlocker") {
+      // Use Bright Data Web Unlocker for direct URL fetching
+      // This is used when we have specific URLs to scrape
+      console.log(`[Scout] Bright Data Unlocker mode - requires specific URLs`);
+      r = [];
+    } else if (m === "firecrawl") {
       const buckets = await Promise.all(queries.slice(0, 2).map(q => firecrawlSearch(q, 6)));
       r = buckets.flat();
     } else if (m === "gemini_grounding") {
@@ -229,6 +266,7 @@ async function discoverSources(
       const buckets = await Promise.all(queries.slice(0, 2).map(q => duckDuckGoSearch(q, 6)));
       r = buckets.flat();
     }
+    
     if (r.length >= 1) { chosen = m; raws = r; if (r.length >= 5) break; }
   }
 

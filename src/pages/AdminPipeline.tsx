@@ -148,7 +148,7 @@ function NewRunForm({ onStarted }: { onStarted: (id: string) => void }) {
   const [url, setUrl] = useState("");
   const [pdfFile, setPdfFile] = useState<File | null>(null);
   const [imageFile, setImageFile] = useState<File | null>(null);
-  const [discoveryMethod, setDiscoveryMethod] = useState<"auto" | "firecrawl" | "gemini_grounding" | "duckduckgo">("auto");
+  const [discoveryMethod, setDiscoveryMethod] = useState<"auto" | "firecrawl" | "gemini_grounding" | "duckduckgo" | "brightdata_serp" | "brightdata_unlocker">("auto");
   const [busy, setBusy] = useState(false);
   const [registryAgents, setRegistryAgents] = useState<AgentRow[]>([]);
   const [modelOverrides, setModelOverrides] = useState<Record<string, string>>({});
@@ -256,8 +256,10 @@ function NewRunForm({ onStarted }: { onStarted: (id: string) => void }) {
           <Label className="text-[10px] uppercase tracking-wide text-muted-foreground">Discovery method (Scout)</Label>
           <select value={discoveryMethod} onChange={(e) => setDiscoveryMethod(e.target.value as any)}
             className="mt-1 w-full h-9 rounded-md border border-input bg-background px-3 text-xs">
-            <option value="auto">Auto (Firecrawl → Gemini grounding → DuckDuckGo)</option>
-            <option value="firecrawl">Firecrawl (best quality, uses API key)</option>
+            <option value="auto">Auto (Bright Data → Firecrawl → Gemini → DuckDuckGo)</option>
+            <option value="brightdata_serp">🚀 Bright Data SERP API (best quality, bypasses blocks)</option>
+            <option value="brightdata_unlocker">🚀 Bright Data Web Unlocker (for specific URLs)</option>
+            <option value="firecrawl">Firecrawl (good quality, uses API key)</option>
             <option value="gemini_grounding">Gemini Google Search grounding (20 RPD)</option>
             <option value="duckduckgo">DuckDuckGo HTML (no key, always works)</option>
           </select>

@@ -15,9 +15,22 @@ import {
   writeAgentOutput, readAgentOutput, patchAgentState, loadRun,
 } from "../_shared/pipeline.ts";
 import { selectModelForAgent } from "../_shared/model-config.ts";
+import { 
+  hasAIMLAPIKey, 
+  aimlIntelligenceAnalysis 
+} from "../_shared/aimlapi.ts";
+import { 
+  hasCogneeKey, 
+  cogneeRecallSuccessfulAngles,
+  cogneeStoreIntelligence 
+} from "../_shared/cognee.ts";
 
 const AGENT_KEY = "intelligence";
 const AGENT_NAME = "Intelligence";
+
+// Feature flags
+const USE_AIML_API = Deno.env.get("USE_AIML_API") === "true" && hasAIMLAPIKey();
+const USE_COGNEE = Deno.env.get("USE_COGNEE") === "true" && hasCogneeKey();
 
 const supabase = createClient(
   Deno.env.get("SUPABASE_URL")!,
@@ -96,9 +109,39 @@ async function loadLearningContext(topicCategory: string): Promise<{
   avgViralityByAngle: Record<string, number>;
   highPerformingBriefPatterns: string[];
   totalRunsLearned: number;
+  cognee_used: boolean;
 }> {
+  // Try Cognee first if enabled
+  if (USE_COGNEE) {
+    try {
+      console.log(`[${AGENT_NAME}] Loading learning from Cognee...`);
+      const cogneeResults = await cogneeRecallSuccessfulAngles(topicCategory);
+      
+      if (cogneeResults.successful_angles.length > 0) {
+        console.log(`[${AGENT_NAME}] ✅ Cognee recall: ${cogneeResults.successful_angles.length} angles, avg virality ${cogneeResults.avg_virality}`);
+        
+        // Convert Cognee results to our format
+        const avgViralityByAngle: Record<string, number> = {};
+        cogneeResults.successful_angles.forEach(angle => {
+          avgViralityByAngle[angle] = cogneeResults.avg_virality;
+        });
+        
+        return {
+          topAngleTypes: cogneeResults.successful_angles,
+          avgViralityByAngle,
+          highPerformingBriefPatterns: cogneeResults.recommendations,
+          totalRunsLearned: cogneeResults.successful_angles.length,
+          cognee_used: true,
+        };
+      }
+    } catch (err) {
+      console.error(`[${AGENT_NAME}] Cognee recall failed:`, err);
+      // Fall through to database method
+    }
+  }
+
+  // Fallback to database method
   try {
-    // Ensure table exists gracefully — if not, return empty learning
     const { data: memories, error } = await supabase
       .from("agent_memory")
       .select("*")
@@ -107,16 +150,14 @@ async function loadLearningContext(topicCategory: string): Promise<{
       .limit(20);
 
     if (error || !memories?.length) {
-      return { topAngleTypes: [], avgViralityByAngle: {}, highPerformingBriefPatterns: [], totalRunsLearned: 0 };
+      return { topAngleTypes: [], avgViralityByAngle: {}, highPerformingBriefPatterns: [], totalRunsLearned: 0, cognee_used: false };
     }
 
-    // Filter by similar topic categories
     const relevant = memories.filter(m =>
       !topicCategory || m.topic_category === topicCategory ||
       m.topic_category === "general"
     );
 
-    // Compute average virality by angle type
     const byAngle: Record<string, { total: number; count: number }> = {};
     for (const m of relevant) {
       if (!byAngle[m.angle_type]) byAngle[m.angle_type] = { total: 0, count: 0 };
@@ -128,13 +169,11 @@ async function loadLearningContext(topicCategory: string): Promise<{
       avgViralityByAngle[angle] = Math.round((data.total / data.count) * 10) / 10;
     }
 
-    // Top performing angle types (sorted by avg virality)
     const topAngleTypes = Object.entries(avgViralityByAngle)
       .sort(([, a], [, b]) => b - a)
       .slice(0, 3)
       .map(([angle]) => angle);
 
-    // Extract brief patterns from top 5 performers
     const highPerformingBriefPatterns = relevant
       .filter(m => (m.virality_score || 0) >= 7)
       .slice(0, 5)
@@ -146,9 +185,10 @@ async function loadLearningContext(topicCategory: string): Promise<{
       avgViralityByAngle,
       highPerformingBriefPatterns,
       totalRunsLearned: relevant.length,
+      cognee_used: false,
     };
   } catch {
-    return { topAngleTypes: [], avgViralityByAngle: {}, highPerformingBriefPatterns: [], totalRunsLearned: 0 };
+    return { topAngleTypes: [], avgViralityByAngle: {}, highPerformingBriefPatterns: [], totalRunsLearned: 0, cognee_used: false };
   }
 }
 
@@ -302,14 +342,14 @@ YOUR 7 TASKS — produce all outputs with equal care:
    ${learning.topAngleTypes.length > 0 ? `- Consider these proven high-performing types: ${learning.topAngleTypes.join(", ")}` : ""}
    - Identify WHICH angle type this is (data-led / narrative / explainer / opinion / contrarian / investigative)
 
-5. WRITE CONTENT BRIEF (300 words MINIMUM):
+5. WRITE CONTENT BRIEF (250-300 words):
    - Detailed writing instructions the Rewrite Agent will follow word for word
    - Include: section structure, must-include facts with source citations
    - Include: opening hook strategy (stat / question / scene / controversy)
-   - Include: 3 balance directives to avoid one-sided coverage
+   - Include: 2 balance directives to avoid one-sided coverage
    - Include: Pakistan-specific context to inject
    - Include: word count target and tone guidance
-   - Include: what NOT to say / angles to avoid
+   - BE CONCISE: 250-300 words maximum for the brief
 
 6. SCORE VIRALITY (1-10):
    1-3: Niche specialist only | 4-6: Moderate, good for organic
@@ -426,6 +466,7 @@ IMPORTANT: You MUST populate all properties in the schema with valid, non-empty,
     model: selectedModel,
     temperature: temp,
     maxOutputTokens: 6144,
+    retries: 3, // Retry up to 3 times if JSON is malformed
   });
 
   return {
@@ -537,11 +578,63 @@ Deno.serve(async (req) => {
     console.log(`[${AGENT_NAME}] Context built: ${sourceCount} sources, ~${totalTokens} tokens, temp=${learning.totalRunsLearned > 10 ? 0.5 : 0.65}`);
 
     // ── Step 4: Run intelligence extraction (Pro model + learning) ──
-    console.log(`[${AGENT_NAME}] Calling Gemini (learning_applied=${learning.totalRunsLearned > 0})...`);
+    console.log(`[${AGENT_NAME}] Calling AI model (AIML=${USE_AIML_API}, Cognee=${USE_COGNEE}, learning_applied=${learning.totalRunsLearned > 0})...`);
     const selectedModel = selectModelForAgent(AGENT_KEY, model_override);
-    const intelligence = await extractIntelligence(
-      topic, context, sourceCount, brandVoice, language, topicCategory, learning, selectedModel
-    );
+    
+    let intelligence: IntelligenceOutput;
+    
+    // Try AI/ML API first if enabled (GPT-4o for deep reasoning)
+    if (USE_AIML_API && sourceCount > 0) {
+      try {
+        console.log(`[${AGENT_NAME}] Using AI/ML API (GPT-4o) for intelligence analysis...`);
+        const aimlResult = await aimlIntelligenceAnalysis(topic, scoutOutput.sources, {
+          brand_voice: brandVoice,
+          language: language,
+        });
+        
+        // Convert AI/ML API result to our format
+        intelligence = {
+          key_facts: aimlResult.key_insights?.map((insight: string, idx: number) => ({
+            fact: insight,
+            source_domain: scoutOutput.sources[0]?.source_domain || "unknown",
+            source_index: 0,
+            confidence: "high" as const,
+            fact_type: "general" as const,
+          })) || [],
+          contradictions: aimlResult.contradictions || [],
+          entities: [],
+          best_angle: aimlResult.recommended_angle || `Comprehensive analysis of ${topic}`,
+          angle_justification: aimlResult.angle_justification || "AI/ML API deep reasoning analysis",
+          content_brief: `Write a comprehensive article about "${topic}" based on ${sourceCount} sources. ${aimlResult.recommended_angle || ""}`,
+          virality_score: aimlResult.pakistan_relevance || 5,
+          virality_factors: ["AI/ML API analysis", "Deep reasoning", "Contradiction detection"],
+          noise_sources: [],
+          trusted_sources: Array.from({ length: sourceCount }, (_, i) => i),
+          topic_complexity: "moderate" as const,
+          reader_prerequisite: `Understanding of ${topic}`,
+          missing_perspectives: [],
+          source_count_analyzed: sourceCount,
+          total_token_context: estimateTokens(context),
+          intelligence_confidence: "high" as const,
+          learned_angle_type: "data-led",
+          learning_applied: true,
+          past_runs_consulted: learning.totalRunsLearned,
+        };
+        
+        console.log(`[${AGENT_NAME}] ✅ AI/ML API analysis complete`);
+      } catch (aimlErr) {
+        console.error(`[${AGENT_NAME}] AI/ML API failed, falling back to Gemini:`, aimlErr);
+        // Fall through to Gemini
+        intelligence = await extractIntelligence(
+          topic, context, sourceCount, brandVoice, language, topicCategory, learning, selectedModel
+        );
+      }
+    } else {
+      // Use Gemini (default)
+      intelligence = await extractIntelligence(
+        topic, context, sourceCount, brandVoice, language, topicCategory, learning, selectedModel
+      );
+    }
 
     const durationMs = Date.now() - startedAt;
 
@@ -563,6 +656,8 @@ Deno.serve(async (req) => {
       angle_type: intelligence.learned_angle_type,
       learning_applied: intelligence.learning_applied,
       past_runs_consulted: intelligence.past_runs_consulted,
+      aiml_used: USE_AIML_API,
+      cognee_used: learning.cognee_used,
     });
 
     // ── Step 7: Write learning memory for future runs ──
@@ -572,9 +667,25 @@ Deno.serve(async (req) => {
       intelligence.virality_score,
       intelligence.content_brief.slice(0, 200)
     );
+    
+    // ── Step 8: Store in Cognee if enabled ──
+    if (USE_COGNEE) {
+      try {
+        const insights = intelligence.key_facts.map(f => f.fact);
+        await cogneeStoreIntelligence(topic, insights, {
+          angle: intelligence.best_angle,
+          virality_score: intelligence.virality_score,
+          source_count: sourceCount,
+        });
+        console.log(`[${AGENT_NAME}] ✅ Stored intelligence in Cognee`);
+      } catch (cogneeErr) {
+        console.error(`[${AGENT_NAME}] Failed to store in Cognee:`, cogneeErr);
+        // Non-fatal
+      }
+    }
 
     await insertLog("ai", AGENT_KEY, `${AGENT_NAME} completed`,
-      `${intelligence.key_facts.length} facts | virality=${intelligence.virality_score} | angle="${intelligence.learned_angle_type}" | learning_applied=${intelligence.learning_applied} | ${durationMs}ms`,
+      `${intelligence.key_facts.length} facts | virality=${intelligence.virality_score} | angle="${intelligence.learned_angle_type}" | AIML=${USE_AIML_API} | Cognee=${USE_COGNEE} | ${durationMs}ms`,
       { run_id }
     );
 
@@ -588,6 +699,8 @@ Deno.serve(async (req) => {
       angle_type: intelligence.learned_angle_type,
       learning_applied: intelligence.learning_applied,
       past_runs_consulted: intelligence.past_runs_consulted,
+      aiml_used: USE_AIML_API,
+      cognee_used: learning.cognee_used,
       duration_ms: durationMs,
     }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
 

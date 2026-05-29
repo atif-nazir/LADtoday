@@ -8,15 +8,43 @@ export function SystemHealthTab() {
 
   const load = async () => {
     setLoading(true);
-    const { data } = await supabase.from("system_health").select("*").eq("id", "latest").maybeSingle();
-    setHealth(data);
+    try {
+      // Try to call health-check function for real-time data
+      const { data, error } = await supabase.functions.invoke("health-check");
+      
+      if (!error && data?.system) {
+        setHealth(data.system);
+      } else {
+        // Fallback: read from table
+        const { data: tableData } = await supabase
+          .from("system_health")
+          .select("*")
+          .eq("id", "latest")
+          .maybeSingle();
+        setHealth(tableData);
+      }
+    } catch (err) {
+      console.error("Failed to load system health:", err);
+      // Fallback: read from table
+      const { data: tableData } = await supabase
+        .from("system_health")
+        .select("*")
+        .eq("id", "latest")
+        .maybeSingle();
+      setHealth(tableData);
+    }
     setLoading(false);
   };
 
   useEffect(() => { load(); const iv = setInterval(load, 30000); return () => clearInterval(iv); }, []);
 
   if (loading) return <div className="p-6 text-sm text-muted-foreground">Loading…</div>;
-  if (!health) return <div className="p-6 text-sm text-muted-foreground">No health data yet. Health Check (agent-46) runs every 10 min.</div>;
+  if (!health) return (
+    <div className="p-6 text-sm text-muted-foreground">
+      No system health data yet. System health is calculated from service availability checks.
+      <button onClick={load} className="ml-3 text-primary underline">Refresh</button>
+    </div>
+  );
 
   const checks = health.checks || {};
   const services = Object.entries(checks).map(([name, data]: [string, any]) => ({
@@ -35,13 +63,14 @@ export function SystemHealthTab() {
         {services.length > 0 ? services.map((s) => (
           <div key={s.name} className="border border-border rounded-lg p-4 bg-card">
             <div className="flex items-center gap-2 mb-2">
-              <div className={`w-2 h-2 rounded-full ${s.status === "ok" || s.status === "healthy" ? "bg-foreground" : "bg-muted-foreground"}`} />
+              <div className={`w-2 h-2 rounded-full ${s.status === "ok" || s.status === "healthy" ? "bg-foreground" : s.status === "degraded" ? "bg-muted-foreground" : "bg-destructive"}`} />
               <span className="text-sm font-medium capitalize">{s.name.replace(/_/g, " ")}</span>
             </div>
             <div className="text-xs text-muted-foreground">
               <span className="capitalize">{s.status}</span>
               {s.latency > 0 && <> · {s.latency}ms</>}
             </div>
+            {s.detail && <div className="text-xs text-muted-foreground mt-1">{s.detail}</div>}
           </div>
         )) : <div className="col-span-3 text-sm text-muted-foreground">No service checks recorded yet.</div>}
       </div>
