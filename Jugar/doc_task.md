@@ -1,0 +1,8 @@
+- [x] Update Scout Agent (`supabase/functions/scout/index.ts`)
+  - [x] Add `required` field to `expandQueries` schema
+  - [x] Add `required` lists to `scoreSources` schema (both top-level and items level)
+  - [x] Update the `scoreSources` prompt to forbid empty strings/arrays
+- [x] Update Intelligence Agent (`supabase/functions/intelligence/index.ts`)
+  - [x] Add `required` lists to `extractIntelligence` schema (top-level, key_facts, contradictions, entities)
+  - [x] Refine `extractIntelligence` prompt to forbid empty strings/arrays and enforce meaningful generation
+- [ ] Deploy and verify Scout and Intelligence edge functions (User will deploy)
