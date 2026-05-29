@@ -433,21 +433,8 @@ function scoreSourcesSimple(topic: string, enriched: any[]): { sources: SourceRe
     },
   };
 }
-      credibility_score: Number(sc.credibility_score), recency_score: Number(sc.recency_score),
-      relevance_score: Number(sc.relevance_score),
-      key_facts: sc.key_facts, sentiment: sc.sentiment, credibility_signals: sc.credibility_signals,
-    };
-  });
 
-  return {
-    sources,
-    meta: {
-      top_source_domain: scored.top_source_domain, overall_sentiment: scored.overall_sentiment,
-      content_density: scored.content_density, recommended_angle: scored.recommended_angle,
-      pakistan_relevance_score: scored.pakistan_relevance_score, scout_notes: scored.scout_notes,
-    },
-  };
-}
+// ─── Workflow helpers ─────────────────────────────────────────────────────────
 
 // ─── Workflow helpers ─────────────────────────────────────────────────────────
 async function scoutByTopic(topic: string, language: string, model: string, preferred: DiscoveryMethod | "auto"): Promise<ScoutOutput> {
