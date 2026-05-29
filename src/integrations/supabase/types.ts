@@ -1203,17 +1203,22 @@ export type Database = {
           enabled_agents: string[] | null
           error: string | null
           estimated_cost_usd: number
+          final_article: Json | null
           finished_at: string | null
+          guardian_verdict: string | null
           id: string
           input_payload: Json
           input_type: string
           language: string
+          length: string | null
           mode: string | null
           model_overrides: Json | null
           priority: string | null
+          published_article_id: string | null
           started_at: string | null
           status: string
           target_audience: string | null
+          tone: string | null
           topic: string
           total_agents: number | null
           total_tokens: number
@@ -1234,17 +1239,22 @@ export type Database = {
           enabled_agents?: string[] | null
           error?: string | null
           estimated_cost_usd?: number
+          final_article?: Json | null
           finished_at?: string | null
+          guardian_verdict?: string | null
           id?: string
           input_payload?: Json
           input_type?: string
           language?: string
+          length?: string | null
           mode?: string | null
           model_overrides?: Json | null
           priority?: string | null
+          published_article_id?: string | null
           started_at?: string | null
           status?: string
           target_audience?: string | null
+          tone?: string | null
           topic: string
           total_agents?: number | null
           total_tokens?: number
@@ -1265,17 +1275,22 @@ export type Database = {
           enabled_agents?: string[] | null
           error?: string | null
           estimated_cost_usd?: number
+          final_article?: Json | null
           finished_at?: string | null
+          guardian_verdict?: string | null
           id?: string
           input_payload?: Json
           input_type?: string
           language?: string
+          length?: string | null
           mode?: string | null
           model_overrides?: Json | null
           priority?: string | null
+          published_article_id?: string | null
           started_at?: string | null
           status?: string
           target_audience?: string | null
+          tone?: string | null
           topic?: string
           total_agents?: number | null
           total_tokens?: number
