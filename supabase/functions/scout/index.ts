@@ -100,7 +100,10 @@ Return JSON: { "queries": ["...","...","..."] }`;
     const out = await geminiJson<{ queries: string[] }>(prompt, schema, { model, temperature: 0.4, maxOutputTokens: 512 });
     const qs = (out.queries || []).map(q => q.trim()).filter(Boolean);
     return qs.length ? qs.slice(0, 3) : [topic];
-  } catch { return [topic]; }
+  } catch (err) {
+    console.warn(`[${AGENT_NAME}] Query expansion failed (${err}), using topic as-is`);
+    return [topic];
+  }
 }
 
 // ─── Firecrawl search ─────────────────────────────────────────────────────────
@@ -205,7 +208,14 @@ async function duckDuckGoSearch(query: string, limit = 8): Promise<RawSource[]> 
 async function discoverSources(
   topic: string, language: string, model: string, preferred: DiscoveryMethod | "auto"
 ): Promise<{ rawSources: RawSource[]; queries: string[]; method: DiscoveryMethod; tried: DiscoveryMethod[] }> {
-  const queries = await expandQueries(topic, language, model);
+  // Try query expansion, but don't fail if Gemini quota exceeded
+  let queries: string[];
+  try {
+    queries = await expandQueries(topic, language, model);
+  } catch (err) {
+    console.warn(`[${AGENT_NAME}] Query expansion failed, using topic as-is:`, err);
+    queries = [topic];
+  }
 
   let order: DiscoveryMethod[];
   if (preferred === "auto") {
@@ -261,7 +271,12 @@ async function discoverSources(
       const buckets = await Promise.all(queries.slice(0, 2).map(q => firecrawlSearch(q, 6)));
       r = buckets.flat();
     } else if (m === "gemini_grounding") {
-      r = await geminiGroundedSearch(topic, model);
+      try {
+        r = await geminiGroundedSearch(topic, model);
+      } catch (err) {
+        console.warn(`[Scout] Gemini grounding failed:`, err);
+        r = [];
+      }
     } else if (m === "duckduckgo") {
       const buckets = await Promise.all(queries.slice(0, 2).map(q => duckDuckGoSearch(q, 6)));
       r = buckets.flat();
