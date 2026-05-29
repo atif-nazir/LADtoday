@@ -467,16 +467,32 @@ Deno.serve(async (req) => {
     output.total_sources = output.sources.length;
 
     const durationMs = Date.now() - startedAt;
-    await writeAgentOutput(run_id, AGENT_KEY, output, {
-      tokens: Math.ceil(JSON.stringify(output).length / 4),
-      duration_ms: durationMs, status: "completed",
-    });
-    await patchAgentState(run_id, AGENT_KEY, {
-      status: "completed", finished_at: new Date().toISOString(),
-      sources_found: output.total_sources, top_domain: output.top_source_domain,
-      discovery_method: output.discovery_method,
-      discovery_methods_tried: output.discovery_methods_tried,
-    });
+    
+    console.log(`[${AGENT_NAME}] Writing output with ${output.total_sources} sources...`);
+    try {
+      await writeAgentOutput(run_id, AGENT_KEY, output, {
+        tokens: Math.ceil(JSON.stringify(output).length / 4),
+        duration_ms: durationMs, status: "completed",
+      });
+      console.log(`[${AGENT_NAME}] ✅ Output written successfully`);
+    } catch (writeErr) {
+      console.error(`[${AGENT_NAME}] ❌ Failed to write output:`, writeErr);
+      throw new Error(`Failed to write agent output: ${writeErr instanceof Error ? writeErr.message : String(writeErr)}`);
+    }
+    
+    try {
+      await patchAgentState(run_id, AGENT_KEY, {
+        status: "completed", finished_at: new Date().toISOString(),
+        sources_found: output.total_sources, top_domain: output.top_source_domain,
+        discovery_method: output.discovery_method,
+        discovery_methods_tried: output.discovery_methods_tried,
+      });
+      console.log(`[${AGENT_NAME}] ✅ Agent state patched`);
+    } catch (stateErr) {
+      console.error(`[${AGENT_NAME}] ⚠️ Failed to patch state:`, stateErr);
+      // Non-fatal, continue
+    }
+    
     await insertLog("ai", AGENT_KEY, `${AGENT_NAME} completed`,
       `${output.total_sources} sources via ${output.discovery_method} (tried ${output.discovery_methods_tried.join("→")}), ${durationMs}ms`,
       { run_id });

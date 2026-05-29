@@ -519,7 +519,13 @@ Deno.serve(async (req) => {
     if (!scoutOutput) {
       throw new Error("scout output not found. Scout must complete before Intelligence.");
     }
-    console.log(`[${AGENT_NAME}] Loaded ${(scoutOutput.sources || []).length} scout sources`);
+    const sourceCount = (scoutOutput.sources || []).length;
+    console.log(`[${AGENT_NAME}] Loaded ${sourceCount} scout sources`);
+    
+    // If Scout found 0 sources, we can still proceed with knowledge-based analysis
+    if (sourceCount === 0) {
+      console.log(`[${AGENT_NAME}] ⚠️ Scout found 0 sources — proceeding with knowledge-based analysis`);
+    }
 
     // ── Step 2: Load learning context from past runs ──
     console.log(`[${AGENT_NAME}] Loading learning context for category="${topicCategory}"...`);
