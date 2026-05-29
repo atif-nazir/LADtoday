@@ -1,5 +1,13 @@
 // Shared model configuration mapping and helper functions for agents.
 
+// Available models (only those currently supported by Gemini API v1beta)
+const AVAILABLE_MODELS = [
+  "gemini-2.5-flash",
+  "gemini-2.5-pro",
+  "gemini-1.5-flash",
+  "gemini-1.5-pro",
+];
+
 const DEFAULT_MODELS: Record<string, string> = {
   "scout": "gemini-2.5-flash",
   "intelligence": "gemini-2.5-flash",
@@ -54,28 +62,52 @@ const DEFAULT_MODELS: Record<string, string> = {
 };
 
 /**
+ * Validate if a model is available in Gemini API
+ */
+function isModelAvailable(modelName: string): boolean {
+  return AVAILABLE_MODELS.includes(modelName);
+}
+
+/**
  * Select the model to use for a given agent, respecting user overrides.
+ * Validates that the model is available, falls back to default if not.
  *
  * @param agentKey The key of the agent (e.g. 'scout', 'intelligence')
  * @param modelOverride The model overrides dictionary from the run payload
  * @returns The resolved model name to invoke Gemini with
  */
 export function selectModelForAgent(agentKey: string, modelOverride?: Record<string, string>): string {
+  let selectedModel: string | undefined;
+  
   if (modelOverride) {
     if (modelOverride[agentKey]) {
-      return modelOverride[agentKey];
-    }
-    const normalizedKey = agentKey.replace(/_/g, "-");
-    if (modelOverride[normalizedKey]) {
-      return modelOverride[normalizedKey];
-    }
-    const underscoreKey = agentKey.replace(/-/g, "_");
-    if (modelOverride[underscoreKey]) {
-      return modelOverride[underscoreKey];
+      selectedModel = modelOverride[agentKey];
+    } else {
+      const normalizedKey = agentKey.replace(/_/g, "-");
+      if (modelOverride[normalizedKey]) {
+        selectedModel = modelOverride[normalizedKey];
+      } else {
+        const underscoreKey = agentKey.replace(/-/g, "_");
+        if (modelOverride[underscoreKey]) {
+          selectedModel = modelOverride[underscoreKey];
+        }
+      }
     }
   }
-  const normalizedKey = agentKey.replace(/_/g, "-");
-  return DEFAULT_MODELS[agentKey] || DEFAULT_MODELS[normalizedKey] || "gemini-2.5-flash";
+  
+  // If no override or override not found, use default
+  if (!selectedModel) {
+    const normalizedKey = agentKey.replace(/_/g, "-");
+    selectedModel = DEFAULT_MODELS[agentKey] || DEFAULT_MODELS[normalizedKey] || "gemini-2.5-flash";
+  }
+  
+  // Validate model is available
+  if (!isModelAvailable(selectedModel)) {
+    console.warn(`[Model Config] Model "${selectedModel}" not available for agent "${agentKey}", falling back to gemini-2.5-flash`);
+    return "gemini-2.5-flash";
+  }
+  
+  return selectedModel;
 }
 
 /**
@@ -85,5 +117,13 @@ export function getModelInfo(modelName: string) {
   return {
     name: modelName,
     isPro: modelName.endsWith("-pro"),
+    available: isModelAvailable(modelName),
   };
+}
+
+/**
+ * Get list of all available models
+ */
+export function getAvailableModels(): string[] {
+  return [...AVAILABLE_MODELS];
 }

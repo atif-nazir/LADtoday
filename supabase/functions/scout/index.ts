@@ -281,7 +281,7 @@ async function discoverSources(
   return { rawSources: unique.slice(0, 10), queries, method: chosen, tried };
 }
 
-// ─── Score sources with Gemini ────────────────────────────────────────────────
+// ─── Score sources with Gemini (with fallback to simple scoring) ──────────────
 async function scoreSources(topic: string, raws: RawSource[], model: string): Promise<{ sources: SourceResult[]; meta: any }> {
   if (raws.length === 0) throw new Error("Scout discovered 0 sources — all backends returned empty.");
 
@@ -292,6 +292,17 @@ async function scoreSources(topic: string, raws: RawSource[], model: string): Pr
     return { ...r, body: body.slice(0, 1800) };
   }));
 
+  // Try Gemini scoring first
+  try {
+    return await scoreSourcesWithGemini(topic, enriched, model);
+  } catch (err) {
+    console.warn(`[${AGENT_NAME}] Gemini scoring failed (${err}), using simple scoring`);
+    return scoreSourcesSimple(topic, enriched);
+  }
+}
+
+// Gemini-based scoring (high quality)
+async function scoreSourcesWithGemini(topic: string, enriched: any[], model: string): Promise<{ sources: SourceResult[]; meta: any }> {
   const schema = {
     type: "object",
     properties: {
@@ -341,13 +352,7 @@ pakistan_relevance_score 0-10, scout_notes (1-2 sentence editor summary)
 
 Sources:\n${sourcesBlock}`;
 
-  let scored: any;
-  try {
-    scored = await geminiJson(prompt, schema, { model, temperature: 0.3, maxOutputTokens: 8192 });
-  } catch (err) {
-    console.error(`[${AGENT_NAME}] scoreSources retry:`, err);
-    scored = await geminiJson(prompt, schema, { model, temperature: 0.1, maxOutputTokens: 8192 });
-  }
+  const scored = await geminiJson(prompt, schema, { model, temperature: 0.3, maxOutputTokens: 8192 });
 
   const scoredArr: any[] = scored.sources || [];
   if (scoredArr.length === 0) throw new Error("Gemini scoring returned 0 sources");
@@ -374,18 +379,104 @@ Sources:\n${sourcesBlock}`;
   };
 }
 
+// Simple scoring without Gemini (fallback)
+function scoreSourcesSimple(topic: string, enriched: any[]): { sources: SourceResult[]; meta: any } {
+  const sources: SourceResult[] = enriched.map((s, i) => {
+    const domain = slugifyDomain(s.url);
+    
+    // Simple credibility heuristic
+    let credibility = 0.5;
+    if (domain.endsWith(".gov.pk") || domain.endsWith(".edu.pk")) credibility = 0.9;
+    else if (domain.includes("dawn.com") || domain.includes("tribune.com")) credibility = 0.8;
+    else if (domain.includes("reuters.com") || domain.includes("bbc.com")) credibility = 0.85;
+    
+    return {
+      title: s.title,
+      url: s.url,
+      source_domain: domain,
+      full_text: s.body || s.snippet || s.title,
+      author: "Unknown",
+      publish_date: today(),
+      credibility_score: credibility,
+      recency_score: 0.7,
+      relevance_score: 0.7,
+      key_facts: [s.snippet || s.title].filter(Boolean),
+      sentiment: "neutral" as const,
+      credibility_signals: [`Source: ${domain}`],
+    };
+  });
+
+  return {
+    sources,
+    meta: {
+      top_source_domain: sources[0]?.source_domain || "unknown",
+      overall_sentiment: "neutral",
+      content_density: "medium",
+      recommended_angle: `Comprehensive coverage of ${topic} from ${sources.length} sources`,
+      pakistan_relevance_score: 5,
+      scout_notes: `Discovered ${sources.length} sources without AI scoring (quota/error fallback)`,
+    },
+  };
+}
+      credibility_score: Number(sc.credibility_score), recency_score: Number(sc.recency_score),
+      relevance_score: Number(sc.relevance_score),
+      key_facts: sc.key_facts, sentiment: sc.sentiment, credibility_signals: sc.credibility_signals,
+    };
+  });
+
+  return {
+    sources,
+    meta: {
+      top_source_domain: scored.top_source_domain, overall_sentiment: scored.overall_sentiment,
+      content_density: scored.content_density, recommended_angle: scored.recommended_angle,
+      pakistan_relevance_score: scored.pakistan_relevance_score, scout_notes: scored.scout_notes,
+    },
+  };
+}
+
 // ─── Workflow helpers ─────────────────────────────────────────────────────────
 async function scoutByTopic(topic: string, language: string, model: string, preferred: DiscoveryMethod | "auto"): Promise<ScoutOutput> {
-  const { rawSources, queries, method, tried } = await discoverSources(topic, language, model, preferred);
-  const { sources, meta } = await scoreSources(topic, rawSources, model);
-  return {
-    sources, input_type: "topic", image_mode: false,
-    total_sources: sources.length, deduplication_removed: 0,
-    top_source_domain: meta.top_source_domain, overall_sentiment: meta.overall_sentiment,
-    content_density: meta.content_density, recommended_angle: meta.recommended_angle,
-    pakistan_relevance_score: meta.pakistan_relevance_score, scout_notes: meta.scout_notes,
-    search_queries_used: queries, discovery_method: method, discovery_methods_tried: tried,
-  };
+  try {
+    const { rawSources, queries, method, tried } = await discoverSources(topic, language, model, preferred);
+    const { sources, meta } = await scoreSources(topic, rawSources, model);
+    return {
+      sources, input_type: "topic", image_mode: false,
+      total_sources: sources.length, deduplication_removed: 0,
+      top_source_domain: meta.top_source_domain, overall_sentiment: meta.overall_sentiment,
+      content_density: meta.content_density, recommended_angle: meta.recommended_angle,
+      pakistan_relevance_score: meta.pakistan_relevance_score, scout_notes: meta.scout_notes,
+      search_queries_used: queries, discovery_method: method, discovery_methods_tried: tried,
+    };
+  } catch (err) {
+    // Fallback to DuckDuckGo on any error (quota, model not found, etc.)
+    console.error(`[Scout] Error in primary flow, falling back to DuckDuckGo:`, err);
+    const queries = [topic]; // Simple query
+    const rawSources = await duckDuckGoSearch(topic, 8);
+    if (rawSources.length === 0) throw err; // If DuckDuckGo also fails, throw original error
+    
+    // Simple scoring without Gemini
+    const sources: SourceResult[] = await Promise.all(rawSources.map(async (r, i) => {
+      const body = await fetchUrlContent(r.url);
+      return {
+        title: r.title, url: r.url, source_domain: slugifyDomain(r.url),
+        full_text: body || r.snippet, author: "Unknown", publish_date: today(),
+        credibility_score: 0.6, recency_score: 0.7, relevance_score: 0.7,
+        key_facts: [r.snippet], sentiment: "neutral" as const,
+        credibility_signals: ["DuckDuckGo result"],
+      };
+    }));
+    
+    return {
+      sources, input_type: "topic", image_mode: false,
+      total_sources: sources.length, deduplication_removed: 0,
+      top_source_domain: sources[0]?.source_domain || "unknown",
+      overall_sentiment: "neutral", content_density: "medium",
+      recommended_angle: `General coverage of ${topic}`,
+      pakistan_relevance_score: 5, scout_notes: "Fallback to DuckDuckGo due to error",
+      search_queries_used: queries, discovery_method: "duckduckgo",
+      discovery_methods_tried: ["duckduckgo"],
+    };
+  }
 }
 
 async function scoutByUrl(urlInput: string, topic: string, language: string, model: string, preferred: DiscoveryMethod | "auto"): Promise<ScoutOutput> {

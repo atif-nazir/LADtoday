@@ -331,45 +331,60 @@ function NewRunForm({ onStarted }: { onStarted: (id: string) => void }) {
                       toast({ title: "All agents set to Gemini 2.5 Flash" });
                     }}
                   >
-                    Set All to 2.5 Flash (20 RPD)
+                    Set All to 2.5 Flash (20 RPM)
                   </button>
                   <button
                     type="button"
-                    className="text-[10px] border border-border rounded px-2 py-0.5 hover:bg-muted font-medium transition-colors bg-accent/30 text-accent-foreground"
+                    className="text-[10px] border border-border rounded px-2 py-0.5 hover:bg-muted font-medium transition-colors"
                     onClick={() => {
                       const overridden = { ...modelOverrides };
                       Object.keys(overridden).forEach(k => {
-                        overridden[k] = "gemini-3.1-flash-lite";
+                        overridden[k] = "gemini-1.5-flash";
                       });
                       setModelOverrides(overridden);
-                      toast({ title: "All agents set to Gemini 3.1 Flash Lite (500 RPD)" });
+                      toast({ title: "All agents set to Gemini 1.5 Flash" });
                     }}
                   >
-                    Set All to 3.1 Flash Lite (500 RPD)
+                    Set All to 1.5 Flash (15 RPM)
                   </button>
                 </div>
               </div>
-              {registryAgents.filter(a => a.enabled).map((agent) => (
-                <div key={agent.key} className="flex items-center justify-between gap-2 text-xs">
-                  <span className="truncate flex-1 font-medium">{agent.name}</span>
-                  <select
-                    value={modelOverrides[agent.key] || agent.model}
-                    onChange={(e) => {
-                      const newModel = e.target.value;
-                      setModelOverrides({ ...modelOverrides, [agent.key]: newModel });
-                      toast({ title: `${agent.name} set to ${newModel}` });
-                    }}
-                    className="h-7 text-[11px] rounded-md border border-input bg-background px-2 py-0"
-                  >
-                    <option value="gemini-2.5-flash">Gemini 2.5 Flash</option>
-                    <option value="gemini-3.5-flash">Gemini 3.5 Flash</option>
-                    <option value="gemini-3-flash">Gemini 3 Flash</option>
-                    <option value="gemini-3.1-flash-lite">Gemini 3.1 Flash Lite</option>
-                    <option value="gemini-2.5-flash-lite">Gemini 2.5 Flash Lite</option>
-                    <option value="gemini-2.5-pro">Gemini 2.5 Pro</option>
-                  </select>
-                </div>
-              ))}
+              {registryAgents.filter(a => a.enabled).map((agent) => {
+                // Define supported models per agent (only available ones)
+                const supportedModels = (() => {
+                  switch(agent.key) {
+                    case "scout":
+                    case "intelligence":
+                    case "rewrite":
+                    case "guardian":
+                      return ["gemini-2.5-flash", "gemini-2.5-pro", "gemini-1.5-flash", "gemini-1.5-pro"];
+                    case "creative":
+                      return ["gemini-2.5-flash", "gemini-2.5-pro", "gemini-1.5-flash"];
+                    default:
+                      return ["gemini-2.5-flash", "gemini-1.5-flash"];
+                  }
+                })();
+                
+                return (
+                  <div key={agent.key} className="flex items-center justify-between gap-2 text-xs">
+                    <span className="truncate flex-1 font-medium">{agent.name}</span>
+                    <select
+                      value={modelOverrides[agent.key] || agent.model}
+                      onChange={(e) => {
+                        const newModel = e.target.value;
+                        setModelOverrides({ ...modelOverrides, [agent.key]: newModel });
+                        toast({ title: `${agent.name} set to ${newModel}` });
+                      }}
+                      className="h-7 text-[11px] rounded-md border border-input bg-background px-2 py-0"
+                    >
+                      {supportedModels.includes("gemini-2.5-flash") && <option value="gemini-2.5-flash">Gemini 2.5 Flash (20 RPM)</option>}
+                      {supportedModels.includes("gemini-2.5-pro") && <option value="gemini-2.5-pro">Gemini 2.5 Pro (10 RPM)</option>}
+                      {supportedModels.includes("gemini-1.5-flash") && <option value="gemini-1.5-flash">Gemini 1.5 Flash (15 RPM)</option>}
+                      {supportedModels.includes("gemini-1.5-pro") && <option value="gemini-1.5-pro">Gemini 1.5 Pro (2 RPM)</option>}
+                    </select>
+                  </div>
+                );
+              })}
             </div>
           </details>
         </div>
