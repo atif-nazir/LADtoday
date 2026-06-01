@@ -28,8 +28,8 @@ import {
 const AGENT_KEY = "intelligence";
 const AGENT_NAME = "Intelligence";
 
-// Feature flags
-const USE_AIML_API = Deno.env.get("USE_AIML_API") === "true" && hasAIMLAPIKey();
+// Use AIML if key is present (auto-detect, no env flag required).
+const USE_AIML_API = hasAIMLAPIKey();
 const USE_COGNEE = Deno.env.get("USE_COGNEE") === "true" && hasCogneeKey();
 
 const supabase = createClient(
