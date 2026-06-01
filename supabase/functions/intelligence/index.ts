@@ -9,7 +9,8 @@
 // ============================================================
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { geminiJson } from "../_shared/gemini.ts";
+import { geminiJson, GeminiError } from "../_shared/gemini.ts";
+import { aiJson } from "../_shared/ai-provider.ts";
 import { insertLog } from "../_shared/logger.ts";
 import {
   writeAgentOutput, readAgentOutput, patchAgentState, loadRun,
