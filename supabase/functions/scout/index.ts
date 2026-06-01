@@ -30,6 +30,10 @@ const supabase = createClient(
   Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
 );
 
+// Startup credential check
+console.log(`[Scout] 🔑 Startup credentials: BRIGHTDATA_API_TOKEN=${!!Deno.env.get("BRIGHTDATA_API_TOKEN")} | FIRECRAWL_API_KEY=${!!FIRECRAWL_API_KEY} | GEMINI_API_KEY=${!!GEMINI_API_KEY} | hasBrightData=${hasBrightDataCredentials()}`);
+
+
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",

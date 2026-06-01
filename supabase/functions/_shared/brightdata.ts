@@ -9,7 +9,10 @@ const BRIGHTDATA_PASSWORD = Deno.env.get("BRIGHTDATA_PASSWORD") || "";
 const BRIGHTDATA_CUSTOMER_ID = Deno.env.get("BRIGHTDATA_CUSTOMER_ID") || "";
 
 export function hasBrightDataCredentials(): boolean {
-  return !!(BRIGHTDATA_API_TOKEN || (BRIGHTDATA_USERNAME && BRIGHTDATA_PASSWORD));
+  const hasToken = !!BRIGHTDATA_API_TOKEN;
+  const hasUserPass = !!(BRIGHTDATA_USERNAME && BRIGHTDATA_PASSWORD);
+  console.log(`[BrightData] Credential check: API_TOKEN=${hasToken} (${BRIGHTDATA_API_TOKEN ? BRIGHTDATA_API_TOKEN.slice(0, 8) + "..." : "EMPTY"}), USER/PASS=${hasUserPass}`);
+  return !!(hasToken || hasUserPass);
 }
 
 export interface BrightDataSource {
@@ -26,11 +29,14 @@ export async function brightDataSERP(
   options?: { geo?: string; num?: number }
 ): Promise<BrightDataSource[]> {
   if (!BRIGHTDATA_API_TOKEN) {
+    console.error("[BrightData SERP] BRIGHTDATA_API_TOKEN is empty/undefined — skipping");
     throw new Error("BRIGHTDATA_API_TOKEN not configured");
   }
 
   const geo = options?.geo || "pk";
   const num = options?.num || 10;
+
+  console.log(`[BrightData SERP] 🔍 Query: "${query}" | geo=${geo} | num=${num} | token=${BRIGHTDATA_API_TOKEN.slice(0, 8)}...`);
 
   try {
     const params = new URLSearchParams({
@@ -39,21 +45,39 @@ export async function brightDataSERP(
       num: num.toString(),
     });
 
-    const response = await fetch(
-      `https://api.brightdata.com/serp/google/search?${params}`,
-      {
-        headers: { "Authorization": `Bearer ${BRIGHTDATA_API_TOKEN}` },
-        signal: AbortSignal.timeout(15000),
-      }
-    );
+    const url = `https://api.brightdata.com/serp/google/search?${params}`;
+    console.log(`[BrightData SERP] → Fetching: ${url}`);
+
+    const response = await fetch(url, {
+      headers: { "Authorization": `Bearer ${BRIGHTDATA_API_TOKEN}` },
+      signal: AbortSignal.timeout(15000),
+    });
+
+    const responseText = await response.text();
+    console.log(`[BrightData SERP] ← Status: ${response.status} | Body length: ${responseText.length} | First 500 chars: ${responseText.slice(0, 500)}`);
 
     if (!response.ok) {
-      console.error(`[BrightData SERP] ${response.status}: ${await response.text()}`);
+      console.error(`[BrightData SERP] ❌ HTTP ${response.status}: ${responseText.slice(0, 300)}`);
       return [];
     }
 
-    const data = await response.json();
+    let data: any;
+    try {
+      data = JSON.parse(responseText);
+    } catch (parseErr) {
+      console.error(`[BrightData SERP] ❌ Failed to parse JSON response: ${parseErr}`);
+      return [];
+    }
+
+    // Log all top-level keys to understand the response structure
+    console.log(`[BrightData SERP] Response keys: ${Object.keys(data).join(", ")}`);
+    
     const results = data.organic || [];
+    console.log(`[BrightData SERP] ✅ Found ${results.length} organic results`);
+
+    if (results.length === 0) {
+      console.warn(`[BrightData SERP] ⚠️ 0 organic results. Full response structure: ${JSON.stringify(data).slice(0, 800)}`);
+    }
 
     return results.map((r: any) => ({
       url: r.link || r.url,
@@ -62,7 +86,8 @@ export async function brightDataSERP(
       tool_used: "serp_api" as const,
     })).filter((r: any) => r.url);
   } catch (err) {
-    console.error("[BrightData SERP] Error:", err);
+    console.error(`[BrightData SERP] ❌ Exception: ${err instanceof Error ? err.message : String(err)}`);
+    console.error(`[BrightData SERP] Stack: ${err instanceof Error ? err.stack : "N/A"}`);
     return [];
   }
 }
