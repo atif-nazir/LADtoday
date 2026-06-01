@@ -5,7 +5,7 @@
 // ============================================================
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { geminiJson } from "../_shared/gemini.ts";
+import { aiJson } from "../_shared/ai-provider.ts";
 
 const supabase = createClient(
   Deno.env.get("SUPABASE_URL")!,
@@ -113,9 +113,15 @@ INSTRUCTIONS:
 
 Return JSON: { "title", "subtitle", "html", "word_count", "quality_notes" }`;
 
-    const result = await geminiJson<{
+    const { result } = await aiJson<{
       title: string; subtitle: string; html: string; word_count: number; quality_notes: string;
-    }>(prompt, schema, { model, temperature: 0.6, maxOutputTokens: 6144 });
+    }>(prompt, schema, {
+      prefer: "auto",
+      model: model,
+      temperature: 0.6,
+      maxOutputTokens: 6144,
+      system: "You are a senior digital editor. Output a single valid JSON object matching the requested schema. No prose, no markdown."
+    });
 
     return new Response(JSON.stringify({
       ok: true,

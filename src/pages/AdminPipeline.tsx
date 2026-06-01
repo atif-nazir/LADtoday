@@ -774,19 +774,93 @@ function RunDetail({ runId }: { runId: string }) {
           {drawerAgent && (
             <div className="mt-4 space-y-3 text-sm">
               <div className="text-xs text-muted-foreground">{drawerAgent.description}</div>
-              <div className="grid grid-cols-2 gap-2 text-xs">
-                <div><span className="text-muted-foreground">Phase:</span> {drawerAgent.phase}</div>
-                <div><span className="text-muted-foreground">Model:</span> {drawerAgent.model}</div>
-                <div><span className="text-muted-foreground">Depends on:</span> {drawerAgent.depends_on.join(", ") || "—"}</div>
-                <div><span className="text-muted-foreground">Status:</span> {states[drawerAgent.key]?.status || "pending"}</div>
+              <div className="grid grid-cols-2 gap-2 text-xs border-b border-border pb-3">
+                <div><span className="text-muted-foreground font-medium">Phase:</span> {drawerAgent.phase}</div>
+                <div><span className="text-muted-foreground font-medium">Default Model:</span> {drawerAgent.model}</div>
+                <div><span className="text-muted-foreground font-medium">Depends on:</span> {drawerAgent.depends_on.join(", ") || "—"}</div>
+                <div><span className="text-muted-foreground font-medium">Status:</span> <span className={`px-1.5 py-0.5 rounded text-[10px] border ${statusColor(states[drawerAgent.key]?.status || "pending")}`}>{states[drawerAgent.key]?.status || "pending"}</span></div>
               </div>
-              {drawerOutput ? (
-                <pre className="bg-muted/40 rounded p-3 text-[11px] overflow-x-auto">
+
+              {/* Dynamic dependencies and live context */}
+              <div className="pt-1 space-y-1.5">
+                <div className="text-xs font-semibold text-foreground">Pipeline Dependencies</div>
+                <div className="text-xs flex flex-wrap gap-1.5 items-center">
+                  <span className="text-muted-foreground">Preceding Agent(s):</span>
+                  {drawerAgent.depends_on.length > 0 ? (
+                    drawerAgent.depends_on.map(dep => {
+                      const depStatus = states[dep]?.status || "pending";
+                      return (
+                        <span key={dep} className={`px-1.5 py-0.5 rounded text-[10px] border inline-flex items-center gap-1 ${statusColor(depStatus)}`}>
+                          <span className={`w-1.5 h-1.5 rounded-full ${depStatus === "completed" ? "bg-green-500" : depStatus === "running" ? "bg-primary animate-pulse" : "bg-muted-foreground"}`} />
+                          {dep} ({depStatus})
+                        </span>
+                      );
+                    })
+                  ) : (
+                    <span className="text-muted-foreground italic">None (First agent in pipeline)</span>
+                  )}
+                </div>
+              </div>
+
+              {/* Detailed AI and Tooling Context */}
+              <div className="pt-2 border-t border-border space-y-2">
+                <div className="text-xs font-semibold text-foreground">AI & Tooling Details</div>
+                <div className="grid grid-cols-2 gap-x-4 gap-y-2 text-xs">
+                  <div>
+                    <span className="text-muted-foreground block font-medium">Configured Model</span>
+                    <span className="font-mono text-[11px] bg-muted px-1.5 py-0.5 rounded block mt-0.5 w-fit">
+                      {run?.model_overrides?.[drawerAgent.key] || drawerAgent.model}
+                    </span>
+                  </div>
+                  <div>
+                    <span className="text-muted-foreground block font-medium">Default Action/Tool</span>
+                    <span className="font-medium block mt-0.5 text-foreground/80">{drawerAgent.tool}</span>
+                  </div>
+                  {states[drawerAgent.key]?.discovery_method && (
+                    <div>
+                      <span className="text-muted-foreground block font-medium">Discovery Method Used</span>
+                      <span className="font-semibold text-green-600 dark:text-green-400 block mt-0.5">
+                        {states[drawerAgent.key].discovery_method}
+                      </span>
+                    </div>
+                  )}
+                  {states[drawerAgent.key]?.discovery_methods_tried && (
+                    <div className="col-span-2">
+                      <span className="text-muted-foreground block font-medium">Discovery Pipeline Attempt Order</span>
+                      <span className="font-mono text-[10px] bg-muted px-2 py-1 rounded block mt-0.5">
+                        {states[drawerAgent.key].discovery_methods_tried.join(" → ")}
+                      </span>
+                    </div>
+                  )}
+                  {states[drawerAgent.key]?.aiml_used !== undefined && (
+                    <div>
+                      <span className="text-muted-foreground block font-medium">AI API Provider</span>
+                      <span className="font-semibold text-[#FA76FF] block mt-0.5">
+                        {states[drawerAgent.key].aiml_used ? "AI/ML API (GPT-4o)" : "Gemini Only"}
+                      </span>
+                    </div>
+                  )}
+                  {states[drawerAgent.key]?.bright_data_used !== undefined && (
+                    <div>
+                      <span className="text-muted-foreground block font-medium">Bright Data Active</span>
+                      <span className="font-semibold text-blue-600 dark:text-blue-400 block mt-0.5">
+                        {states[drawerAgent.key].bright_data_used ? "Yes (Google SERP API)" : "No"}
+                      </span>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              <div className="pt-2 border-t border-border space-y-1.5">
+                <div className="text-xs font-semibold text-foreground">Agent Output JSON</div>
+                {drawerOutput ? (
+                  <pre className="bg-muted/40 rounded p-3 text-[11px] overflow-x-auto max-h-[300px]">
 {JSON.stringify(drawerOutput.output, null, 2)}
-                </pre>
-              ) : (
-                <div className="text-xs text-muted-foreground">No output yet for this agent in this run.</div>
-              )}
+                  </pre>
+                ) : (
+                  <div className="text-xs text-muted-foreground">No output yet for this agent in this run.</div>
+                )}
+              </div>
             </div>
           )}
         </SheetContent>
