@@ -1,109 +1,15 @@
 // ============================================================
-// AI Provider Cascade: AIML API → Gemini → throw
-// Auto-detects keys, no env flags needed
-// ============================================================
-
-import { aimlJson } from "./aimlapi.ts";
-import { geminiJson } from "./gemini.ts";
-
-const AIML_API_KEY = Deno.env.get("AIML_API_KEY") || "";
-const GEMINI_API_KEY = Deno.env.get("GEMINI_API_KEY") || "";
-
-export type AIProvider = "aiml" | "gemini" | "auto";
-
-/**
- * Cascade JSON call: AIML → Gemini → throw
- * Auto-detects available keys
- */
-export async function aiJson<T = any>(
-  systemPrompt: string,
-  userPrompt: string,
-  schema: Record<string, any>,
-  opts?: {
-    provider?: AIProvider;
-    temperature?: number;
-    maxTokens?: number;
-    model?: string;
-    run_id?: string;
-    agent_key?: string;
-  }
-): Promise<{ result: T; provider: string }> {
-  const provider = opts?.provider || "auto";
-  
-  // If specific provider requested, use only that
-  if (provider === "aiml") {
-    if (!AIML_API_KEY) throw new Error("AIML_API_KEY not configured");
-    const result = await aimlJson<T>(systemPrompt, userPrompt, {
-      temperature: opts?.temperature,
-      max_tokens: opts?.maxTokens,
-    });
-    return { result, provider: "aiml" };
-  }
-  
-  if (provider === "gemini") {
-    if (!GEMINI_API_KEY) throw new Error("GEMINI_API_KEY not configured");
-    const result = await geminiJson<T>(userPrompt, schema, {
-      model: opts?.model || "gemini-2.5-flash",
-      temperature: opts?.temperature,
-      maxOutputTokens: opts?.maxTokens,
-      run_id: opts?.run_id,
-      agent_key: opts?.agent_key,
-    });
-    return { result, provider: "gemini" };
-  }
-  
-  // Auto cascade: AIML → Gemini → throw
-  if (AIML_API_KEY) {
-    try {
-      const result = await aimlJson<T>(systemPrompt, userPrompt, {
-        temperature: opts?.temperature,
-        max_tokens: opts?.maxTokens,
-      });
-      return { result, provider: "aiml" };
-    } catch (err) {
-      console.warn(`[AI Provider] AIML failed, trying Gemini:`, err);
-    }
-  }
-  
-  if (GEMINI_API_KEY) {
-    try {
-      const result = await geminiJson<T>(userPrompt, schema, {
-        model: opts?.model || "gemini-2.5-flash",
-        temperature: opts?.temperature,
-        maxOutputTokens: opts?.maxTokens,
-        run_id: opts?.run_id,
-        agent_key: opts?.agent_key,
-      });
-      return { result, provider: "gemini" };
-    } catch (err) {
-      console.error(`[AI Provider] Gemini failed:`, err);
-      throw err;
-    }
-  }
-  
-  throw new Error("No AI provider available (AIML_API_KEY or GEMINI_API_KEY required)");
-}
-
-/**
- * Check which providers are available
- */
-export function getAvailableProviders(): AIProvider[] {
-  const providers: AIProvider[] = ["auto"];
-  if (AIML_API_KEY) providers.push("aiml");
-  if (GEMINI_API_KEY) providers.push("gemini");
-  return providers;
-}
-
-// ============================================================
 // Unified AI Provider with cascade fallback
-// AIML API (GPT-4o) → Gemini → throw
+// Featherless.ai → AIML API → Gemini → throw
 // Each call passes through quota/missing-key errors to next provider.
 // ============================================================
 
 import { geminiJson, hasGeminiKey, GeminiError } from "./gemini.ts";
 import { aimlJson, hasAIMLAPIKey } from "./aimlapi.ts";
 
-export type AIProvider = "auto" | "aimlapi" | "gemini";
+const FEATHERLESS_API_KEY = Deno.env.get("FEATHERLESS_API_KEY") || "";
+
+export type AIProvider = "auto" | "featherless" | "aimlapi" | "gemini";
 
 export interface AIJsonOpts {
   prefer?: AIProvider;
@@ -111,10 +17,73 @@ export interface AIJsonOpts {
   maxOutputTokens?: number;
   model?: string;          // Gemini model (e.g. gemini-2.5-flash)
   aimlModel?: string;      // AIML model (default gpt-4o-mini)
-  system?: string;         // Optional system prompt for AIML
+  featherlessModel?: string; // Featherless model (default meta-llama/Meta-Llama-3.1-70B-Instruct)
+  system?: string;         // Optional system prompt for AIML/Featherless
   retries?: number;
   run_id?: string;
   agent_key?: string;
+}
+
+function hasFeatherlessKey(): boolean {
+  return !!FEATHERLESS_API_KEY;
+}
+
+async function featherlessJson<T = any>(
+  systemPrompt: string,
+  userPrompt: string,
+  opts?: {
+    model?: string;
+    temperature?: number;
+    max_tokens?: number;
+  }
+): Promise<T> {
+  if (!FEATHERLESS_API_KEY) {
+    throw new Error("FEATHERLESS_API_KEY not configured");
+  }
+
+  const model = opts?.model || "meta-llama/Meta-Llama-3.1-70B-Instruct";
+  const temperature = opts?.temperature ?? 0.6;
+  const max_tokens = opts?.max_tokens ?? 4096;
+
+  try {
+    const response = await fetch("https://api.featherless.ai/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${FEATHERLESS_API_KEY}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model,
+        messages: [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: userPrompt },
+        ],
+        temperature,
+        max_tokens,
+        response_format: { type: "json_object" },
+      }),
+      signal: AbortSignal.timeout(60000),
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`Featherless API error ${response.status}: ${errorText.slice(0, 200)}`);
+    }
+
+    const data = await response.json();
+    const content = data.choices?.[0]?.message?.content;
+    
+    if (!content) {
+      throw new Error("Featherless returned empty response");
+    }
+
+    return JSON.parse(content);
+  } catch (err) {
+    if (err instanceof Error && err.message.includes("JSON")) {
+      throw new Error(`Featherless JSON parse error: ${err.message}`);
+    }
+    throw err;
+  }
 }
 
 function isRetryable(err: any): boolean {
@@ -135,31 +104,38 @@ function isRetryable(err: any): boolean {
 }
 
 /**
- * Strict JSON cascade. Tries AIML then Gemini (or in order preferred).
+ * Strict JSON cascade. Tries Featherless → AIML → Gemini (or in order preferred).
  * Throws only if every provider fails.
  */
 export async function aiJson<T = any>(
   prompt: string,
   schema: Record<string, any>,
   opts: AIJsonOpts = {}
-): Promise<{ result: T; provider: "aimlapi" | "gemini"; attempts: string[] }> {
+): Promise<{ result: T; provider: "featherless" | "aimlapi" | "gemini"; attempts: string[] }> {
   const prefer = opts.prefer || "auto";
-  const order: ("aimlapi" | "gemini")[] = [];
+  const order: ("featherless" | "aimlapi" | "gemini")[] = [];
 
-  if (prefer === "aimlapi") {
+  if (prefer === "featherless") {
+    if (hasFeatherlessKey()) order.push("featherless");
     if (hasAIMLAPIKey()) order.push("aimlapi");
+    if (hasGeminiKey()) order.push("gemini");
+  } else if (prefer === "aimlapi") {
+    if (hasAIMLAPIKey()) order.push("aimlapi");
+    if (hasFeatherlessKey()) order.push("featherless");
     if (hasGeminiKey()) order.push("gemini");
   } else if (prefer === "gemini") {
     if (hasGeminiKey()) order.push("gemini");
+    if (hasFeatherlessKey()) order.push("featherless");
     if (hasAIMLAPIKey()) order.push("aimlapi");
   } else {
-    // auto: AIML first (higher per-day quota typically), fallback to Gemini
+    // auto: Featherless first (free tier), then AIML, fallback to Gemini
+    if (hasFeatherlessKey()) order.push("featherless");
     if (hasAIMLAPIKey()) order.push("aimlapi");
     if (hasGeminiKey()) order.push("gemini");
   }
 
   if (order.length === 0) {
-    throw new Error("No AI provider configured. Set AIML_API_KEY or GEMINI_API_KEY.");
+    throw new Error("No AI provider configured. Set FEATHERLESS_API_KEY, AIML_API_KEY, or GEMINI_API_KEY.");
   }
 
   const attempts: string[] = [];
@@ -168,7 +144,17 @@ export async function aiJson<T = any>(
   for (const provider of order) {
     attempts.push(provider);
     try {
-      if (provider === "aimlapi") {
+      if (provider === "featherless") {
+        const system = opts.system ||
+          "You are a JSON-only assistant. Output a single valid JSON object matching the requested schema. No prose, no markdown.";
+        const schemaText = `\n\nSCHEMA (return JSON matching exactly):\n${JSON.stringify(schema)}`;
+        const result = await featherlessJson<T>(system, prompt + schemaText, {
+          model: opts.featherlessModel || "meta-llama/Meta-Llama-3.1-70B-Instruct",
+          temperature: opts.temperature ?? 0.6,
+          max_tokens: opts.maxOutputTokens ?? 4096,
+        });
+        return { result, provider, attempts };
+      } else if (provider === "aimlapi") {
         const system = opts.system ||
           "You are a JSON-only assistant. Output a single valid JSON object matching the requested schema. No prose, no markdown.";
         const schemaText = `\n\nSCHEMA (return JSON matching exactly):\n${JSON.stringify(schema)}`;
@@ -201,6 +187,10 @@ export async function aiJson<T = any>(
   throw new Error(`All AI providers failed (tried: ${attempts.join(", ")}). Last error: ${String(lastErr).slice(0, 300)}`);
 }
 
-export function describeProviders(): { aimlapi: boolean; gemini: boolean } {
-  return { aimlapi: hasAIMLAPIKey(), gemini: hasGeminiKey() };
+export function describeProviders(): { featherless: boolean; aimlapi: boolean; gemini: boolean } {
+  return { 
+    featherless: hasFeatherlessKey(), 
+    aimlapi: hasAIMLAPIKey(), 
+    gemini: hasGeminiKey() 
+  };
 }
