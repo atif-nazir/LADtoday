@@ -583,63 +583,46 @@ Deno.serve(async (req) => {
     const { context, sourceCount, totalTokens } = buildSourceContext(scoutOutput, topic);
     console.log(`[${AGENT_NAME}] Context built: ${sourceCount} sources, ~${totalTokens} tokens, temp=${learning.totalRunsLearned > 10 ? 0.5 : 0.65}`);
 
-    // ── Step 4: Run intelligence extraction (Pro model + learning) ──
-    console.log(`[${AGENT_NAME}] Calling AI model (AIML=${USE_AIML_API}, Cognee=${USE_COGNEE}, learning_applied=${learning.totalRunsLearned > 0})...`);
+    // ── Step 4: Run intelligence extraction (cascade: AIML → Gemini, never fails) ──
+    console.log(`[${AGENT_NAME}] Calling AI model (AIML key=${USE_AIML_API}, Cognee=${USE_COGNEE}, learning_applied=${learning.totalRunsLearned > 0})...`);
     const selectedModel = selectModelForAgent(AGENT_KEY, model_override);
-    
+    const preferProvider = (run.input_payload as any)?.ai_provider || "auto";
+
     let intelligence: IntelligenceOutput;
-    
-    // Try AI/ML API first if enabled (GPT-4o for deep reasoning)
-    if (USE_AIML_API && sourceCount > 0) {
-      try {
-        console.log(`[${AGENT_NAME}] Using AI/ML API (GPT-4o) for intelligence analysis...`);
-        const aimlResult = await aimlIntelligenceAnalysis(topic, scoutOutput.sources, {
-          brand_voice: brandVoice,
-          language: language,
-        });
-        
-        // Convert AI/ML API result to our format
-        intelligence = {
-          key_facts: aimlResult.key_insights?.map((insight: string, idx: number) => ({
-            fact: insight,
-            source_domain: scoutOutput.sources[0]?.source_domain || "unknown",
-            source_index: 0,
-            confidence: "high" as const,
-            fact_type: "general" as const,
-          })) || [],
-          contradictions: aimlResult.contradictions || [],
-          entities: [],
-          best_angle: aimlResult.recommended_angle || `Comprehensive analysis of ${topic}`,
-          angle_justification: aimlResult.angle_justification || "AI/ML API deep reasoning analysis",
-          content_brief: `Write a comprehensive article about "${topic}" based on ${sourceCount} sources. ${aimlResult.recommended_angle || ""}`,
-          virality_score: aimlResult.pakistan_relevance || 5,
-          virality_factors: ["AI/ML API analysis", "Deep reasoning", "Contradiction detection"],
-          noise_sources: [],
-          trusted_sources: Array.from({ length: sourceCount }, (_, i) => i),
-          topic_complexity: "moderate" as const,
-          reader_prerequisite: `Understanding of ${topic}`,
-          missing_perspectives: [],
-          source_count_analyzed: sourceCount,
-          total_token_context: estimateTokens(context),
-          intelligence_confidence: "high" as const,
-          learned_angle_type: "data-led",
-          learning_applied: true,
-          past_runs_consulted: learning.totalRunsLearned,
-        };
-        
-        console.log(`[${AGENT_NAME}] ✅ AI/ML API analysis complete`);
-      } catch (aimlErr) {
-        console.error(`[${AGENT_NAME}] AI/ML API failed, falling back to Gemini:`, aimlErr);
-        // Fall through to Gemini
-        intelligence = await extractIntelligence(
-          topic, context, sourceCount, brandVoice, language, topicCategory, learning, selectedModel
-        );
-      }
-    } else {
-      // Use Gemini (default)
+    try {
       intelligence = await extractIntelligence(
         topic, context, sourceCount, brandVoice, language, topicCategory, learning, selectedModel
       );
+    } catch (extractErr) {
+      console.error(`[${AGENT_NAME}] AI extraction failed entirely, using static fallback:`, extractErr);
+      // Static fallback so the pipeline never dies
+      intelligence = {
+        key_facts: (scoutOutput?.sources || []).slice(0, 5).map((s: any, i: number) => ({
+          fact: (s.key_facts?.[0] || s.full_text || s.title || topic).slice(0, 220),
+          source_domain: s.source_domain || "unknown",
+          source_index: i,
+          confidence: "medium" as const,
+          fact_type: "general" as const,
+        })),
+        contradictions: [],
+        entities: [{ name: topic.slice(0, 60), type: "organization" as const, mention_count: 1, context: "primary subject" }],
+        best_angle: `A Pakistan-centric look at "${topic}"`,
+        angle_justification: "Static fallback: AI providers unavailable. Anchored angle on Pakistani audience.",
+        content_brief: `Write a 1200-word article about "${topic}" for Pakistani readers. Structure: hook intro (statistic or question), background, three analysis sections, Pakistan impact, conclusion. Tone: ${brandVoice}. Cite the Scout sources where possible.`,
+        virality_score: 5,
+        virality_factors: ["Pakistan relevance", "informational value"],
+        noise_sources: [],
+        trusted_sources: (scoutOutput?.sources || []).map((_: any, i: number) => i),
+        topic_complexity: "moderate" as const,
+        reader_prerequisite: `Basic familiarity with ${topic}`,
+        missing_perspectives: ["Government viewpoint", "Citizen impact", "Expert analysis"],
+        source_count_analyzed: sourceCount,
+        total_token_context: totalTokens,
+        intelligence_confidence: "low" as const,
+        learned_angle_type: "general",
+        learning_applied: false,
+        past_runs_consulted: learning.totalRunsLearned,
+      };
     }
 
     const durationMs = Date.now() - startedAt;
