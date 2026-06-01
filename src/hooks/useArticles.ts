@@ -43,7 +43,7 @@ export interface ArticleWithCategory {
 async function fetchArticles(publishedOnly = true): Promise<ArticleWithCategory[]> {
   let query = supabase
     .from("articles")
-    .select("*, categories(name, slug, thumbnail_theme), scraper_sources(name, thumbnail_theme, thumbnail_template)")
+    .select("*, categories(name, slug), scraper_sources(name, thumbnail_theme, thumbnail_template)")
     .order("created_at", { ascending: false });
 
   if (publishedOnly) {
