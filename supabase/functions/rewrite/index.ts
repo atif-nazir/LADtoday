@@ -10,6 +10,7 @@
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { geminiJson, GeminiError } from "../_shared/gemini.ts";
+import { aiJson } from "../_shared/ai-provider.ts";
 import { insertLog } from "../_shared/logger.ts";
 import { writeAgentOutput, readAgentOutput, patchAgentState, loadRun } from "../_shared/pipeline.ts";
 import { selectModelForAgent } from "../_shared/model-config.ts";
@@ -148,7 +149,43 @@ Return JSON:
     required: ["article_html", "meta_description", "social_caption", "email_version", "quality_score"],
   };
 
-  const raw = await geminiJson<any>(prompt, schema, { model, temperature: 0.7, maxOutputTokens: 8192 });
+  let raw: any;
+  try {
+    const { result, provider } = await aiJson<any>(prompt, schema, {
+      prefer: "auto",
+      model,
+      aimlModel: "gpt-4o-mini",
+      temperature: 0.7,
+      maxOutputTokens: 8192,
+      retries: 1,
+    });
+    raw = result;
+    console.log(`[${AGENT_NAME}] Article written via ${provider}`);
+  } catch (aiErr) {
+    console.error(`[${AGENT_NAME}] All AI providers failed, using template:`, aiErr);
+    // Static template fallback so pipeline never dies
+    const factList = (intelligence?.key_facts || [])
+      .slice(0, 5)
+      .map((f: any) => `<li>${f.fact} (<em>${f.source_domain || "source"}</em>)</li>`)
+      .join("");
+    raw = {
+      article_html: `<article><h1>${topic}</h1>
+<p><strong>${bestAngle}</strong></p>
+<h2>Background</h2><p>${brief.slice(0, 600) || `An overview of ${topic} for Pakistani readers.`}</p>
+<h2>Key Findings</h2><ul>${factList || `<li>Initial research compiled — see source list.</li>`}</ul>
+<h2>Pakistan Impact</h2><p>This story has direct implications for Pakistani consumers, businesses, and regulators.</p>
+<h2>What to Watch</h2><p>Follow LADtoday for ongoing coverage of ${topic}.</p>
+</article>`,
+      meta_description: `${topic} — ${bestAngle}`.slice(0, 155),
+      social_caption: `${topic}: ${bestAngle}`.slice(0, 250),
+      email_version: `${topic}\n\n${brief.slice(0, 500)}`,
+      quotes_embedded: 0,
+      balance_directive_followed: false,
+      localization_applied: true,
+      self_review_notes: "Static template fallback (AI providers unavailable).",
+      quality_score: 4,
+    };
+  }
 
   const plainText = (raw.article_html || "").replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
   const wordCount = plainText.split(" ").filter(Boolean).length;

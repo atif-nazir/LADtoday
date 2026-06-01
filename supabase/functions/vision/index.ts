@@ -7,6 +7,7 @@
 // ============================================================
 
 import { geminiJson, GeminiError } from "../_shared/gemini.ts";
+import { aiJson } from "../_shared/ai-provider.ts";
 import { insertLog } from "../_shared/logger.ts";
 import { writeAgentOutput, readAgentOutput, patchAgentState, loadRun } from "../_shared/pipeline.ts";
 import { selectModelForAgent } from "../_shared/model-config.ts";
@@ -103,7 +104,20 @@ Return ONLY valid JSON:
     required: ["hero_image", "inline_images", "infographic_data", "og_image_description", "accessibility_notes"],
   };
 
-  const raw = await geminiJson<any>(prompt, schema, { model, temperature: 0.4, maxOutputTokens: 800 });
+  let raw: any;
+  try {
+    const { result } = await aiJson<any>(prompt, schema, { prefer: "auto", model, aimlModel: "gpt-4o-mini", temperature: 0.4, maxOutputTokens: 800 });
+    raw = result;
+  } catch (err) {
+    console.error(`[${AGENT_NAME}] AI providers failed, using template:`, err);
+    raw = {
+      hero_image: { query: topic, alt_text: `Image illustrating ${topic}`, caption: topic, unsplash_url: `https://unsplash.com/s/photos/${encodeURIComponent(topic)}` },
+      inline_images: [],
+      infographic_data: { should_create: false, type: "none", title: "", data_points: [], color_scheme: "orange-dark" },
+      og_image_description: `Social preview for ${topic}`,
+      accessibility_notes: ["Ensure all images have descriptive alt text"],
+    };
+  }
 
   return {
     hero_image: raw.hero_image || {
