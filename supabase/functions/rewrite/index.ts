@@ -274,6 +274,69 @@ Deno.serve(async (req) => {
       quality_score: result.quality_score, headline_used: result.headline_used?.slice(0, 100),
     });
 
+    // Insert into local articles table for site display as draft
+    const slug = result.headline_used.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "");
+    try {
+      // Get or create a default category
+      let categoryId = null;
+      const { data: defaultCat } = await supabase.from("categories")
+        .select("id")
+        .eq("name", "News")
+        .maybeSingle();
+      
+      if (defaultCat) {
+        categoryId = defaultCat.id;
+      } else {
+        const { data: newCat } = await supabase.from("categories")
+          .insert({ name: "News", slug: "news", description: "Latest news articles" })
+          .select("id")
+          .single();
+        categoryId = newCat?.id;
+      }
+      
+      if (categoryId) {
+        const sections = [{
+          heading: "",
+          content: result.article_html || result.article_text || "",
+        }];
+        
+        // Check if article with this slug or title already exists
+        const { data: existing } = await supabase.from("articles")
+          .select("id")
+          .or(`slug.eq.${slug},title.eq.${result.headline_used}`)
+          .maybeSingle();
+
+        const articlePayload = {
+          title: result.headline_used,
+          subtitle: result.meta_description?.slice(0, 100),
+          slug,
+          category_id: categoryId,
+          date: new Date().toISOString().split("T")[0],
+          read_time: `${Math.ceil((result.word_count || 800) / 200)} min read`,
+          image: "/placeholder.svg", // Default image
+          author_name: "LADtoday AI",
+          author_avatar: "/logo.svg",
+          author_bio: "AI-powered content creation system",
+          introduction: result.meta_description || "",
+          sections,
+          conclusion: "",
+          tags: [],
+          published: false, // IT IS A DRAFT!
+          ai_rewrite_status: "completed",
+        };
+
+        if (existing) {
+          await supabase.from("articles").update(articlePayload).eq("id", existing.id);
+          console.log(`[${AGENT_NAME}] ✅ Updated in local articles table as draft: /article/news/${slug}`);
+        } else {
+          await supabase.from("articles").insert(articlePayload);
+          console.log(`[${AGENT_NAME}] ✅ Inserted into local articles table as draft: /article/news/${slug}`);
+        }
+      }
+    } catch (insertErr) {
+      console.error(`[${AGENT_NAME}] ⚠️ Failed to insert into articles table as draft:`, insertErr);
+    }
+
     await insertLog("ai", AGENT_KEY, `${AGENT_NAME} completed`,
       `words=${result.word_count} quality=${result.quality_score}/10 | ${durationMs}ms`, { run_id });
 

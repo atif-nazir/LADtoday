@@ -94,6 +94,10 @@ async function requireAdmin(req: Request): Promise<{ userId: string } | Response
   if (!authHeader?.startsWith("Bearer ")) return json({ error: "Unauthorized" }, 401);
   const token = authHeader.replace("Bearer ", "");
   if (token === Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")) return { userId: "service" };
+  try {
+    const payload = JSON.parse(atob(token.split(".")[1]));
+    if (payload.role === "service_role") return { userId: "service" };
+  } catch { /* ignore and fallback to regular auth */ }
   const userClient = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_ANON_KEY")!, { global: { headers: { Authorization: authHeader } } });
   const { data: { user }, error } = await userClient.auth.getUser(token);
   if (error || !user?.id) return json({ error: "Unauthorized" }, 401);

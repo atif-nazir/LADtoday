@@ -1,4 +1,4 @@
-﻿// ============================================================
+// ============================================================
 // Agent 08 — Publish Agent
 // Phase: PUBLISH | Depends on: guardian
 // ============================================================
@@ -293,8 +293,14 @@ Deno.serve(async (req) => {
           type: "text",
           content: article.article_html || article.body || "",
         }];
-        
-        await supabase.from("articles").insert({
+
+        // Check if article with this slug or title already exists (inserted as draft by rewrite agent)
+        const { data: existing } = await supabase.from("articles")
+          .select("id")
+          .or(`slug.eq.${slug},title.eq.${article.headline}`)
+          .maybeSingle();
+
+        const articlePayload = {
           title: article.headline,
           subtitle: article.meta_description?.slice(0, 100),
           slug,
@@ -309,9 +315,17 @@ Deno.serve(async (req) => {
           sections,
           conclusion: "",
           tags: article.focus_keyword ? [article.focus_keyword] : [],
-          published: true,
-        });
-        console.log(`[${AGENT_NAME}] ✅ Inserted into local articles table: /article/${slug}`);
+          published: true, // Now it is published!
+          ai_rewrite_status: "completed",
+        };
+
+        if (existing) {
+          await supabase.from("articles").update(articlePayload).eq("id", existing.id);
+          console.log(`[${AGENT_NAME}] ✅ Updated existing article in local articles table: /article/${slug}`);
+        } else {
+          await supabase.from("articles").insert(articlePayload);
+          console.log(`[${AGENT_NAME}] ✅ Inserted new article in local articles table: /article/${slug}`);
+        }
       }
     } catch (insertErr) {
       console.error(`[${AGENT_NAME}] ⚠️ Failed to insert into articles table:`, insertErr);

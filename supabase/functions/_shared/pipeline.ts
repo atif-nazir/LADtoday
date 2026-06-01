@@ -66,20 +66,29 @@ export async function patchAgentState(
   agentKey: string,
   patch: Record<string, any>
 ) {
-  // Optimistic merge by re-reading agent_states.
-  const { data, error } = await supabase
-    .from("pipeline_runs")
-    .select("agent_states")
-    .eq("id", runId)
-    .single();
-  if (error) throw new Error(`patchAgentState read: ${error.message}`);
-  const states = (data?.agent_states as Record<string, any>) || {};
-  states[agentKey] = { ...(states[agentKey] || {}), ...patch };
-  const { error: upErr } = await supabase
-    .from("pipeline_runs")
-    .update({ agent_states: states })
-    .eq("id", runId);
-  if (upErr) throw new Error(`patchAgentState write: ${upErr.message}`);
+  // Try atomic database merge first to avoid race conditions in parallel agents
+  const { error } = await supabase.rpc("patch_agent_state", {
+    run_id: runId,
+    agent_key: agentKey,
+    patch: patch,
+  });
+
+  if (error) {
+    console.warn("RPC patch_agent_state failed, using optimistic fallback:", error.message);
+    const { data, error: readErr } = await supabase
+      .from("pipeline_runs")
+      .select("agent_states")
+      .eq("id", runId)
+      .single();
+    if (readErr) throw new Error(`patchAgentState read fallback: ${readErr.message}`);
+    const states = (data?.agent_states as Record<string, any>) || {};
+    states[agentKey] = { ...(states[agentKey] || {}), ...patch };
+    const { error: writeErr } = await supabase
+      .from("pipeline_runs")
+      .update({ agent_states: states })
+      .eq("id", runId);
+    if (writeErr) throw new Error(`patchAgentState write fallback: ${writeErr.message}`);
+  }
 }
 
 /**
