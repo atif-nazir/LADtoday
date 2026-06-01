@@ -149,6 +149,7 @@ function NewRunForm({ onStarted }: { onStarted: (id: string) => void }) {
   const [pdfFile, setPdfFile] = useState<File | null>(null);
   const [imageFile, setImageFile] = useState<File | null>(null);
   const [discoveryMethod, setDiscoveryMethod] = useState<"auto" | "firecrawl" | "gemini_grounding" | "duckduckgo" | "brightdata_serp" | "brightdata_unlocker">("auto");
+  const [aiProvider, setAiProvider] = useState<"auto" | "aiml" | "gemini">("auto");
   const [busy, setBusy] = useState(false);
   const [registryAgents, setRegistryAgents] = useState<AgentRow[]>([]);
   const [modelOverrides, setModelOverrides] = useState<Record<string, string>>({});
@@ -183,7 +184,10 @@ function NewRunForm({ onStarted }: { onStarted: (id: string) => void }) {
     }
     setBusy(true);
     try {
-      const input_payload: Record<string, string> = { discovery_method: discoveryMethod };
+      const input_payload: Record<string, string> = { 
+        discovery_method: discoveryMethod,
+        ai_provider: aiProvider 
+      };
       let input_type = "topic";
       if (url.trim()) { input_payload.url = url.trim(); input_type = "url"; }
       if (pdfFile) {
@@ -262,6 +266,15 @@ function NewRunForm({ onStarted }: { onStarted: (id: string) => void }) {
             <option value="firecrawl">Firecrawl (good quality, uses API key)</option>
             <option value="gemini_grounding">Gemini Google Search grounding (20 RPD)</option>
             <option value="duckduckgo">DuckDuckGo HTML (no key, always works)</option>
+          </select>
+        </div>
+        <div>
+          <Label className="text-[10px] uppercase tracking-wide text-muted-foreground">AI Provider (All Agents)</Label>
+          <select value={aiProvider} onChange={(e) => setAiProvider(e.target.value as any)}
+            className="mt-1 w-full h-9 rounded-md border border-input bg-background px-3 text-xs">
+            <option value="auto">Auto (AI/ML API → Gemini)</option>
+            <option value="aiml">AI/ML API (GPT-4o)</option>
+            <option value="gemini">Gemini Only</option>
           </select>
         </div>
       </div>
@@ -602,6 +615,22 @@ function RunDetail({ runId }: { runId: string }) {
                   <span className={`flex items-center gap-1 px-1.5 py-0.5 rounded border text-[10px] font-medium ${cfg.cls}`}>
                     <Icon className="w-3 h-3" />{verdict}
                   </span>
+                );
+              })()}
+              {/* Published article URL */}
+              {(() => {
+                const publishState = states["publish"];
+                const articleUrl = publishState?.article_url || publishState?.local_article_url;
+                if (!articleUrl) return null;
+                return (
+                  <a 
+                    href={articleUrl} 
+                    target="_blank" 
+                    rel="noopener noreferrer"
+                    className="flex items-center gap-1 px-1.5 py-0.5 rounded border border-blue-200 bg-blue-50 dark:bg-blue-950/30 dark:border-blue-800 text-blue-600 dark:text-blue-400 text-[10px] font-medium hover:bg-blue-100 dark:hover:bg-blue-900/40 transition-colors"
+                  >
+                    <ExternalLink className="w-3 h-3" />Published
+                  </a>
                 );
               })()}
             </div>

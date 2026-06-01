@@ -11,11 +11,35 @@ export function CalendarTab() {
     const today = new Date();
     const start = new Date(today); start.setDate(start.getDate() - 3);
     const end = new Date(today); end.setDate(end.getDate() + 30);
-    const { data } = await supabase.from("content_calendar").select("*")
+    
+    // Try content_calendar first, fallback to pipeline_runs
+    const { data: calendarData } = await supabase.from("content_calendar").select("*")
       .gte("date", start.toISOString().split("T")[0])
       .lte("date", end.toISOString().split("T")[0])
       .order("date");
-    setEntries(data || []);
+    
+    if (calendarData && calendarData.length > 0) {
+      setEntries(calendarData);
+    } else {
+      // Fallback: use pipeline_runs to build calendar
+      const { data: runsData } = await supabase.from("pipeline_runs").select("*")
+        .gte("created_at", start.toISOString())
+        .lte("created_at", end.toISOString())
+        .order("created_at", { ascending: false });
+      
+      // Group by date
+      const grouped = (runsData || []).reduce((acc: any, run: any) => {
+        const date = run.created_at.split("T")[0];
+        if (!acc[date]) {
+          acc[date] = { date, topic: run.topic, status: run.status === "completed" ? "published" : "suggested", runs: [] };
+        }
+        acc[date].runs.push(run);
+        return acc;
+      }, {});
+      
+      setEntries(Object.values(grouped));
+    }
+    
     setLoading(false);
   };
 
@@ -37,7 +61,7 @@ export function CalendarTab() {
         <span className="text-sm font-medium">Content Calendar (30 days)</span>
         <div className="flex gap-2 ml-4 text-[10px] text-muted-foreground">
           <span className="px-1.5 py-0.5 rounded bg-primary text-primary-foreground">Published</span>
-          <span className="px-1.5 py-0.5 rounded bg-muted border border-border">Suggested</span>
+          <span className="px-1.5 py-0.5 rounded bg-muted border border-border">In Progress</span>
           <span className="px-1.5 py-0.5 rounded border border-dashed border-border">Empty</span>
         </div>
         <button onClick={load} className="p-1 hover:bg-muted rounded ml-auto"><RefreshCw className="w-3.5 h-3.5 text-muted-foreground" /></button>
@@ -54,7 +78,12 @@ export function CalendarTab() {
           >
             <div className="text-[10px] text-muted-foreground mb-1">{new Date(d.date + "T00:00:00").getDate()}</div>
             {d.entry ? (
-              <div className="font-medium truncate" title={d.entry.topic}>{d.entry.topic}</div>
+              <>
+                <div className="font-medium truncate" title={d.entry.topic}>{d.entry.topic}</div>
+                {d.entry.runs && d.entry.runs.length > 1 && (
+                  <div className="text-[9px] text-muted-foreground mt-0.5">{d.entry.runs.length} runs</div>
+                )}
+              </>
             ) : (
               <div className="text-muted-foreground/30">—</div>
             )}
@@ -64,7 +93,7 @@ export function CalendarTab() {
 
       {entries.length === 0 && (
         <div className="text-sm text-muted-foreground text-center py-4">
-          No calendar entries yet. Content Calendar (agent-41) generates suggestions daily.
+          No content yet. Start a pipeline run to see calendar entries.
         </div>
       )}
     </div>

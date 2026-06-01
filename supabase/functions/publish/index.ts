@@ -110,7 +110,7 @@ async function publishToWordPress(article: any) {
         title: article.headline,
         content: article.article_html || article.body,
         excerpt: article.meta_description,
-        status: "publish",
+        status: "draft", // Changed to draft
         slug: article.url_slug,
         meta: {
           _yoast_wpseo_title: article.meta_title,
@@ -267,10 +267,62 @@ Deno.serve(async (req) => {
     console.log(`[${AGENT_NAME}] Firing TriggerWare.ai event...`);
     results.triggerware = await fireTriggerWare(article, platforms, guardianVerdict, run_id);
 
+    // Insert into local articles table for site display
+    const slug = article.url_slug || topic.toLowerCase().replace(/[^a-z0-9]+/g, "-");
+    try {
+      // Get or create a default category
+      let categoryId = null;
+      const { data: defaultCat } = await supabase.from("categories")
+        .select("id")
+        .eq("name", "News")
+        .maybeSingle();
+      
+      if (defaultCat) {
+        categoryId = defaultCat.id;
+      } else {
+        const { data: newCat } = await supabase.from("categories")
+          .insert({ name: "News", slug: "news", description: "Latest news articles" })
+          .select("id")
+          .single();
+        categoryId = newCat?.id;
+      }
+      
+      if (categoryId) {
+        // Convert HTML to sections format
+        const sections = [{
+          type: "text",
+          content: article.article_html || article.body || "",
+        }];
+        
+        await supabase.from("articles").insert({
+          title: article.headline,
+          subtitle: article.meta_description?.slice(0, 100),
+          slug,
+          category_id: categoryId,
+          date: new Date().toISOString().split("T")[0],
+          read_time: `${Math.ceil((article.word_count || 800) / 200)} min read`,
+          image: "/placeholder.svg", // Default image
+          author_name: "LADtoday AI",
+          author_avatar: "/logo.svg",
+          author_bio: "AI-powered content creation system",
+          introduction: article.meta_description || "",
+          sections,
+          conclusion: "",
+          tags: article.focus_keyword ? [article.focus_keyword] : [],
+          published: true,
+        });
+        console.log(`[${AGENT_NAME}] ✅ Inserted into local articles table: /article/${slug}`);
+      }
+    } catch (insertErr) {
+      console.error(`[${AGENT_NAME}] ⚠️ Failed to insert into articles table:`, insertErr);
+      // Non-fatal - continue
+    }
+
     // Update pipeline_runs with publish results
     await supabase.from("pipeline_runs").update({
       publish_results: results,
       wordpress_url: results.wordpress?.url,
+      article_url: `/article/${slug}`,
       published_at: new Date().toISOString(),
     }).eq("id", run_id);
 

@@ -18,6 +18,7 @@ import {
   fetchWithBrightData,
   type BrightDataSource 
 } from "../_shared/brightdata.ts";
+import { hasAIMLAPIKey, aimlChat } from "../_shared/aimlapi.ts";
 
 const AGENT_KEY = "scout";
 const AGENT_NAME = "Scout";
@@ -224,6 +225,11 @@ async function discoverSources(
     if (hasBrightDataCredentials()) order.push("brightdata_serp");
     if (FIRECRAWL_API_KEY) order.push("firecrawl");
     if (GEMINI_API_KEY) order.push("gemini_grounding");
+    // AI/ML API fallback when no other services available
+    if (!hasBrightDataCredentials() && !FIRECRAWL_API_KEY && hasAIMLAPIKey()) {
+      console.log(`[${AGENT_NAME}] No Bright Data/Firecrawl, using AI/ML API for discovery`);
+      order.push("gemini_grounding"); // Will use AI/ML API in geminiGroundedSearch
+    }
     order.push("duckduckgo");
   } else if (preferred === "brightdata_serp" || preferred === "brightdata_unlocker") {
     // Bright Data methods

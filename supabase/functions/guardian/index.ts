@@ -14,7 +14,7 @@
 // ============================================================
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { geminiJson, GeminiError } from "../_shared/gemini.ts";
+import { aiJson } from "../_shared/ai-provider.ts";
 import { insertLog } from "../_shared/logger.ts";
 import { writeAgentOutput, readAgentOutput, patchAgentState, loadRun } from "../_shared/pipeline.ts";
 import { selectModelForAgent } from "../_shared/model-config.ts";
@@ -207,7 +207,12 @@ Return ONLY the JSON object.`;
   };
 
   try {
-    return await geminiJson<any>(prompt, schema, { model, temperature: 0.1, maxOutputTokens: 600 });
+    const { result } = await aiJson<any>("You are a compliance checker", prompt, schema, { 
+      model, 
+      temperature: 0.1, 
+      maxTokens: 600 
+    });
+    return result;
   } catch {
     return {
       unsubstantiated_medical: false,
@@ -220,7 +225,7 @@ Return ONLY the JSON object.`;
       issues_found: [],
       risk_level: "low",
       brand_sentiment: "neutral",
-      summary: "Compliance check completed — no critical issues detected",
+      summary: "Compliance check completed — no critical issues detected (fallback)",
     };
   }
 }

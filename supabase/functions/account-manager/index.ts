@@ -14,7 +14,7 @@
 // ============================================================
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { geminiJson } from "../_shared/gemini.ts";
+import { aiJson } from "../_shared/ai-provider.ts";
 import { insertLog } from "../_shared/logger.ts";
 import { writeAgentOutput, readAgentOutput, patchAgentState, loadRun } from "../_shared/pipeline.ts";
 import { selectModelForAgent } from "../_shared/model-config.ts";
@@ -196,10 +196,15 @@ Return ONLY valid JSON:
   };
 
   try {
-    return await geminiJson<any>(prompt, schema, { model, temperature: 0.5, maxOutputTokens: 600 });
+    const { result } = await aiJson<any>("You are a competitive intelligence analyst", prompt, schema, { 
+      model, 
+      temperature: 0.5, 
+      maxTokens: 600 
+    });
+    return result;
   } catch {
     return {
-      competitive_summary: `Competitive analysis for "${topic}" completed. ${velocityData.trending ? "Topic is trending." : "Topic has moderate coverage."}`,
+      competitive_summary: `Competitive analysis for "${topic}" completed. ${velocityData.trending ? "Topic is trending." : "Topic has moderate coverage."} (fallback)`,
       next_topic_suggestions: [`Follow-up on ${topic}`, `Deep dive: ${topic} impact on Pakistan`, `Expert analysis: ${topic}`],
       opportunity_score: velocityData.trending ? 8 : 5,
       competitor_activity: velocityData.result_count > 5 ? "high" : "medium",
