@@ -115,10 +115,12 @@ async function broadcastStatus(runId: string, agentKey: string, progress: number
 }
 
 // ─── Run waves (advance pipeline) ────────────────────────────────────────────
+// fireAndForget=true: invoke agents without waiting (for cron ticks)
+// fireAndForget=false: wait for agents to complete (for initial start)
 
-async function runWave(runId: string) {
+async function runWave(runId: string, fireAndForget = false) {
   const disabledSet = await loadDisabledAgents();
-  const MAX_WAVES = 15;
+  const MAX_WAVES = fireAndForget ? 1 : 15; // cron: single wave; start: loop
 
   for (let wave = 0; wave < MAX_WAVES; wave++) {
     const run = await loadRun(runId);
@@ -143,8 +145,9 @@ async function runWave(runId: string) {
       await updateRun(runId, {
         status: finalStatus,
         finished_at: new Date().toISOString(),
+        completed_at: new Date().toISOString(),
         pipeline_progress: terminal.failed ? undefined : 100,
-        pipeline_message: terminal.failed ? "Pipeline failed" : "✅ Pipeline complete — article published",
+        pipeline_message: terminal.failed ? "Pipeline failed" : "✅ Pipeline complete — article ready as draft",
       });
       await insertLog("ai", "pipeline-orchestrator", `Pipeline ${finalStatus}`, `run_id=${runId}`);
       return;
@@ -154,15 +157,31 @@ async function runWave(runId: string) {
     const ready = nextRunnableAgents({ ...run, enabled_agents: null } as any, filteredRegistry);
 
     if (ready.length === 0) {
+      // Check if any agents are currently running (invoked but not yet complete)
       const hasRunning = Object.values(states).some((s: any) => s.status === "running");
-      if (hasRunning) return;
-      await updateRun(runId, { status: "failed", error: "Pipeline deadlock", finished_at: new Date().toISOString() });
+      if (hasRunning) {
+        // Check for stuck agents: if running for > 5 minutes, mark as failed and retry
+        for (const [key, state] of Object.entries(states)) {
+          const s = state as any;
+          if (s.status === "running" && s.started_at) {
+            const elapsed = Date.now() - new Date(s.started_at).getTime();
+            if (elapsed > 5 * 60 * 1000) { // 5 minutes timeout
+              console.warn(`[Orchestrator] Agent ${key} stuck for ${Math.round(elapsed/1000)}s, resetting to pending`);
+              states[key] = { ...s, status: "pending", previous_attempt: "timeout_reset" };
+            }
+          }
+        }
+        // Write back any timeout resets
+        await updateRun(runId, { agent_states: states });
+        return;
+      }
+      await updateRun(runId, { status: "failed", error: "Pipeline deadlock — no agents runnable and none running", finished_at: new Date().toISOString() });
       return;
     }
 
-    // Mark all ready agents as running
+    // Mark all ready agents as running in DB
     for (const a of ready) {
-      states[a.key] = { status: "running", started_at: new Date().toISOString() };
+      states[a.key] = { ...(states[a.key] || {}), status: "running", started_at: new Date().toISOString() };
     }
 
     const firstAgent = AGENT_DAG.find(a => a.key === ready[0].key);
@@ -181,35 +200,69 @@ async function runWave(runId: string) {
 
     const modelOverrides = (run as any).model_overrides || {};
 
-    await Promise.allSettled(ready.map(async (a) => {
-      try {
-        await invokeAgent(a.key, runId, modelOverrides);
-        await patchAgentState(runId, a.key, { status: "completed", finished_at: new Date().toISOString() });
-      } catch (err) {
-        console.error(`Agent ${a.key} failed:`, err);
-        await patchAgentState(runId, a.key, {
-          status: "failed",
-          finished_at: new Date().toISOString(),
-          error: err instanceof Error ? err.message : String(err),
+    if (fireAndForget) {
+      // ── CRON MODE: Fire agents without waiting ──
+      // Each agent patches its OWN state to "completed" when done.
+      // Next cron tick will detect completion and advance to next wave.
+      console.log(`[Orchestrator] 🚀 Cron: firing ${ready.length} agents for run ${runId}: ${ready.map(a => a.key).join(", ")}`);
+      for (const a of ready) {
+        // Fire-and-forget: don't await the response
+        invokeAgent(a.key, runId, modelOverrides).catch(err => {
+          console.error(`[Orchestrator] Agent ${a.key} invoke failed:`, err);
+          // Mark failed so pipeline can continue
+          patchAgentState(runId, a.key, {
+            status: "failed",
+            finished_at: new Date().toISOString(),
+            error: err instanceof Error ? err.message : String(err),
+          }).catch(() => {});
         });
       }
-    }));
-
-    await new Promise((r) => setTimeout(r, 200));
+      // Return immediately — don't wait for agents
+      return;
+    } else {
+      // ── START MODE: Wait for agents to complete ──
+      await Promise.allSettled(ready.map(async (a) => {
+        try {
+          await invokeAgent(a.key, runId, modelOverrides);
+          await patchAgentState(runId, a.key, { status: "completed", finished_at: new Date().toISOString() });
+        } catch (err) {
+          console.error(`Agent ${a.key} failed:`, err);
+          await patchAgentState(runId, a.key, {
+            status: "failed",
+            finished_at: new Date().toISOString(),
+            error: err instanceof Error ? err.message : String(err),
+          });
+        }
+      }));
+      await new Promise((r) => setTimeout(r, 200));
+    }
   }
 }
 
 // ─── Cron tick ────────────────────────────────────────────────────────────────
+// Processes up to 3 runs per tick in fire-and-forget mode.
+// Each tick is fast (~1-2s) because we don't wait for agents to finish.
 
-async function cronTick(): Promise<{ ticked: number; completed: number }> {
-  const { data: runs } = await supabase.from("pipeline_runs").select("id").eq("status", "running").limit(10);
+async function cronTick(): Promise<{ ticked: number; completed: number; runs_found: number }> {
+  const { data: runs } = await supabase.from("pipeline_runs").select("id, topic").eq("status", "running").limit(5);
+  const runCount = runs?.length || 0;
   let ticked = 0, completed = 0;
-  for (const run of runs || []) {
-    try { await runWave(run.id); ticked++; } catch (err) { console.error(`Cron tick error for ${run.id}:`, err); }
+
+  console.log(`[Cron] Found ${runCount} running pipelines`);
+
+  for (const run of (runs || []).slice(0, 3)) {
+    try {
+      console.log(`[Cron] Advancing run ${run.id} (${(run.topic || "").slice(0, 40)})`);
+      await runWave(run.id, true); // fire-and-forget mode
+      ticked++;
+    } catch (err) {
+      console.error(`[Cron] Error for ${run.id}:`, err);
+    }
+    // Check if pipeline finished
     const { data: check } = await supabase.from("pipeline_runs").select("status").eq("id", run.id).single();
     if (check?.status === "completed" || check?.status === "failed") completed++;
   }
-  return { ticked, completed };
+  return { ticked, completed, runs_found: runCount };
 }
 
 // ─── Main Handler ─────────────────────────────────────────────────────────────
