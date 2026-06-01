@@ -463,15 +463,17 @@ IMPORTANT: You MUST populate all properties in the schema with valid, non-empty,
   // Dynamic temperature: lower when learning says to be precise, higher when exploring
   const temp = learning.totalRunsLearned > 10 ? 0.5 : 0.65;
 
-  // Use Gemini for JSON extraction (with proper error handling for quota)
-  const raw = await geminiJson<any>(prompt, schema, {
+  // Cascade: AIML → Gemini
+  const { result: raw, provider } = await aiJson<any>(prompt, schema, {
+    prefer: "auto",
     model: selectedModel,
+    aimlModel: "gpt-4o-mini",
     temperature: temp,
     maxOutputTokens: 6144,
-    retries: 3,
+    retries: 2,
   });
 
-  console.log(`[${AGENT_NAME}] Intelligence extraction completed via Gemini`);
+  console.log(`[${AGENT_NAME}] Intelligence extraction completed via ${provider}`);
 
   return {
     key_facts: raw.key_facts || [],
