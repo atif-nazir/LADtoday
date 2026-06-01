@@ -46,10 +46,16 @@ function normalizeError(status: number, body: string): GeminiError {
     return new GeminiError(`Gemini authentication failed: ${detail}`, 401, "invalid_key");
   }
   if (status === 429) {
+    // Check if this is a rate limit or quota exceeded
+    const isQuotaExhausted = detail.toLowerCase().includes("quota") || 
+                             detail.toLowerCase().includes("free_tier");
+    
     return new GeminiError(
-      `Gemini quota exceeded. Check Google AI Studio billing/quota for this API key. Detail: ${detail}`,
+      isQuotaExhausted 
+        ? `Gemini quota exceeded. Check Google AI Studio billing/quota for this API key. Falling back to AI/ML API. Detail: ${detail}`
+        : `Gemini rate limited. Retrying or falling back to AI/ML API. Detail: ${detail}`,
       429,
-      "quota_exceeded"
+      isQuotaExhausted ? "quota_exceeded" : "rate_limited"
     );
   }
   return new GeminiError(`Gemini API error ${status}: ${detail}`, 500, "api_error");
@@ -119,6 +125,7 @@ export async function geminiText(
  *
  * `schema` follows the Gemini responseSchema format (a JSON Schema subset).
  * Integrated with Lobster Trap for prompt injection detection.
+ * On quota exceeded (429), throws GeminiError with code="quota_exceeded" for fallback handling.
  */
 export async function geminiJson<T = any>(
   prompt: string,
@@ -213,6 +220,13 @@ export async function geminiJson<T = any>(
       }
     } catch (err) {
       lastError = err as Error;
+      
+      // If quota exceeded, propagate immediately so ai-provider can fallback
+      if (err instanceof GeminiError && err.code === "quota_exceeded") {
+        console.error(`[Gemini] Quota exceeded on attempt ${attempt + 1}, will fallback to AI/ML API`);
+        throw err;
+      }
+      
       if (attempt < maxRetries && !(err instanceof GeminiError && err.code === "invalid_key")) {
         console.warn(`[Gemini] Attempt ${attempt + 1} failed, retrying...`);
         await new Promise(resolve => setTimeout(resolve, 1000 * (attempt + 1))); // Exponential backoff

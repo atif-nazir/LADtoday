@@ -1025,6 +1025,7 @@ export type Database = {
         Row: {
           action_taken: string | null
           agent_key: string
+          blocked: boolean | null
           created_at: string
           error: string | null
           id: string
@@ -1038,11 +1039,13 @@ export type Database = {
           response_tokens: number | null
           risk_score: number | null
           run_id: string | null
+          severity: string | null
           verdict: string | null
         }
         Insert: {
           action_taken?: string | null
           agent_key: string
+          blocked?: boolean | null
           created_at?: string
           error?: string | null
           id?: string
@@ -1056,11 +1059,13 @@ export type Database = {
           response_tokens?: number | null
           risk_score?: number | null
           run_id?: string | null
+          severity?: string | null
           verdict?: string | null
         }
         Update: {
           action_taken?: string | null
           agent_key?: string
+          blocked?: boolean | null
           created_at?: string
           error?: string | null
           id?: string
@@ -1074,6 +1079,7 @@ export type Database = {
           response_tokens?: number | null
           risk_score?: number | null
           run_id?: string | null
+          severity?: string | null
           verdict?: string | null
         }
         Relationships: [
@@ -1213,8 +1219,12 @@ export type Database = {
           length: string | null
           mode: string | null
           model_overrides: Json | null
+          pipeline_message: string
+          pipeline_progress: number
           priority: string | null
+          publish_results: Json | null
           published_article_id: string | null
+          published_at: string | null
           started_at: string | null
           status: string
           target_audience: string | null
@@ -1224,6 +1234,7 @@ export type Database = {
           total_tokens: number
           updated_at: string
           user_id: string | null
+          wordpress_url: string | null
         }
         Insert: {
           agent_states?: Json
@@ -1249,8 +1260,12 @@ export type Database = {
           length?: string | null
           mode?: string | null
           model_overrides?: Json | null
+          pipeline_message?: string
+          pipeline_progress?: number
           priority?: string | null
+          publish_results?: Json | null
           published_article_id?: string | null
+          published_at?: string | null
           started_at?: string | null
           status?: string
           target_audience?: string | null
@@ -1260,6 +1275,7 @@ export type Database = {
           total_tokens?: number
           updated_at?: string
           user_id?: string | null
+          wordpress_url?: string | null
         }
         Update: {
           agent_states?: Json
@@ -1285,8 +1301,12 @@ export type Database = {
           length?: string | null
           mode?: string | null
           model_overrides?: Json | null
+          pipeline_message?: string
+          pipeline_progress?: number
           priority?: string | null
+          publish_results?: Json | null
           published_article_id?: string | null
+          published_at?: string | null
           started_at?: string | null
           status?: string
           target_audience?: string | null
@@ -1296,6 +1316,7 @@ export type Database = {
           total_tokens?: number
           updated_at?: string
           user_id?: string | null
+          wordpress_url?: string | null
         }
         Relationships: []
       }

@@ -7,6 +7,7 @@
 // ============================================================
 
 import { geminiJson, GeminiError } from "../_shared/gemini.ts";
+import { aiJson } from "../_shared/ai-provider.ts";
 import { insertLog } from "../_shared/logger.ts";
 import { writeAgentOutput, readAgentOutput, patchAgentState, loadRun } from "../_shared/pipeline.ts";
 import { selectModelForAgent } from "../_shared/model-config.ts";
@@ -116,7 +117,32 @@ Return ONLY valid JSON:
     required: ["headlines", "top_headline", "hooks", "cta_variants", "social_snippets"],
   };
 
-  const raw = await geminiJson<any>(prompt, schema, { model, temperature: 0.8, maxOutputTokens: 1200 });
+  let raw: any;
+  try {
+    const { result } = await aiJson<any>(prompt, schema, { prefer: "auto", model, aimlModel: "gpt-4o-mini", temperature: 0.8, maxOutputTokens: 1200 });
+    raw = result;
+  } catch (err) {
+    console.error(`[${AGENT_NAME}] AI providers failed, using template variants:`, err);
+    raw = {
+      headlines: [
+        { variant: headline, type: "default", predicted_ctr: 0.05, character_count: headline.length },
+        { variant: `Why ${topic} matters for Pakistan`, type: "question", predicted_ctr: 0.06, character_count: 40 },
+        { variant: `${topic}: what you need to know`, type: "how-to", predicted_ctr: 0.05, character_count: 40 },
+      ],
+      top_headline: headline,
+      hooks: [`${topic} is reshaping how Pakistanis think about this space.`],
+      cta_variants: ["Read the full breakdown →"],
+      social_snippets: {
+        twitter: `${headline} [URL]`.slice(0, 270),
+        linkedin: `${headline}\n\n${summary.slice(0, 200)}\n\n[URL]`,
+        facebook: `${headline} — ${summary.slice(0, 150)} [URL]`,
+        whatsapp: `${headline} [URL]`,
+      },
+      email_subject_lines: [headline.slice(0, 50)],
+      push_notification: headline.slice(0, 100),
+      ab_test_pairs: [],
+    };
+  }
 
   return {
     headlines: (raw.headlines || []).map((h: any) => ({

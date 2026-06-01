@@ -129,7 +129,7 @@ async function publishToWordPress(article: any) {
     const data = await response.json();
     return { published: true, post_id: data.id, url: data.link, status: data.status };
   } catch (err) {
-    return { published: false, reason: String(err) };
+    return { published: false, target: "local", reason: String(err) };
   }
 }
 
