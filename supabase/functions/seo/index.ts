@@ -197,7 +197,29 @@ Return ONLY valid JSON:
     required: ["meta_title", "meta_description", "focus_keyword", "secondary_keywords", "url_slug", "seo_score"],
   };
 
-  const raw = await geminiJson<any>(prompt, schema, { model, temperature: 0.2, maxOutputTokens: 800 });
+  let raw: any;
+  try {
+    const { result } = await aiJson<any>(prompt, schema, {
+      prefer: "auto", model, aimlModel: "gpt-4o-mini",
+      temperature: 0.2, maxOutputTokens: 800,
+    });
+    raw = result;
+  } catch (err) {
+    console.error(`[${AGENT_NAME}] AI providers failed, using heuristic SEO:`, err);
+    raw = {
+      meta_title: headline.slice(0, 60),
+      meta_description: (topic + " — " + plainText.slice(0, 120)).slice(0, 155),
+      focus_keyword: topKeywords[0] || topic,
+      secondary_keywords: topKeywords.slice(1, 5),
+      url_slug: topic.toLowerCase().replace(/[^a-z0-9]+/g, "-").slice(0, 60),
+      schema_type: "Article",
+      seo_score: 55,
+      suggested_headers: paaQuestions.slice(0, 3),
+      internal_link_anchors: topKeywords.slice(0, 3),
+      readability_grade: "Grade 9",
+      estimated_serp_position: 20,
+    };
+  }
 
   // Calculate keyword density
   const focusKeyword = raw.focus_keyword || topic;
