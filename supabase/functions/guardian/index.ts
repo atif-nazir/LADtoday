@@ -207,10 +207,11 @@ Return ONLY the JSON object.`;
   };
 
   try {
-    const { result } = await aiJson<any>("You are a compliance checker", prompt, schema, { 
-      model, 
-      temperature: 0.1, 
-      maxTokens: 600 
+    const { result } = await aiJson<any>(prompt, schema, {
+      model,
+      temperature: 0.1,
+      maxOutputTokens: 600,
+      system: "You are a compliance checker. Output strict JSON only.",
     });
     return result;
   } catch {
