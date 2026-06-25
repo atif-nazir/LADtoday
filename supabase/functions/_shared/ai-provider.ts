@@ -6,10 +6,12 @@
 
 import { geminiJson, hasGeminiKey, GeminiError } from "./gemini.ts";
 import { aimlJson, hasAIMLAPIKey } from "./aimlapi.ts";
+import { canUse, track } from "./quota.ts";
 
 const FEATHERLESS_API_KEY = Deno.env.get("FEATHERLESS_API_KEY") || "";
+const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY") || "";
 
-export type AIProvider = "auto" | "featherless" | "aimlapi" | "gemini";
+export type AIProvider = "auto" | "lovable" | "featherless" | "aimlapi" | "gemini";
 
 export interface AIJsonOpts {
   prefer?: AIProvider;
