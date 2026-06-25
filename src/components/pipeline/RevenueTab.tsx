@@ -32,7 +32,7 @@ export function RevenueTab() {
           .eq("agent_key", "analytics")
           .maybeSingle();
         
-        const metrics = analyticsOutput?.output?.metrics || {};
+        const metrics = (analyticsOutput?.output as any)?.metrics || {};
         const projectedViews = metrics.projected_views || 0;
         const projectedRevenuePKR = metrics.estimated_revenue_pkr || 0;
         const seoScore = metrics.seo_score || 0;
