@@ -201,11 +201,12 @@ Deno.serve(async (req) => {
     await patchAgentState(run_id, AGENT_KEY, { status: "running", started_at: new Date().toISOString() });
 
     // Load all upstream outputs
-    const [rewriteOutput, creativeOutput, seoOutput, guardianOutput] = await Promise.all([
+    const [rewriteOutput, creativeOutput, seoOutput, guardianOutput, visionOutput] = await Promise.all([
       readAgentOutput(run_id, "rewrite"),
       readAgentOutput(run_id, "creative"),
       readAgentOutput(run_id, "seo"),
       readAgentOutput(run_id, "guardian"),
+      readAgentOutput(run_id, "vision"),
     ]);
 
     if (!rewriteOutput) throw new Error("rewrite output not found");
@@ -307,7 +308,7 @@ Deno.serve(async (req) => {
           category_id: categoryId,
           date: new Date().toISOString().split("T")[0],
           read_time: `${Math.ceil((article.word_count || 800) / 200)} min read`,
-          image: "/placeholder.svg", // Default image
+          image: visionOutput?.hero_image?.generated_url || visionOutput?.og_image_url || "/placeholder.svg",
           author_name: "LADtoday AI",
           author_avatar: "/logo.svg",
           author_bio: "AI-powered content creation system",
