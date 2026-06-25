@@ -1713,6 +1713,10 @@ export type Database = {
         Returns: boolean
       }
       increment_view_count: { Args: { article_id: string }; Returns: undefined }
+      patch_agent_state: {
+        Args: { agent_key: string; patch: Json; run_id: string }
+        Returns: undefined
+      }
     }
     Enums: {
       app_role: "admin" | "moderator" | "user"
