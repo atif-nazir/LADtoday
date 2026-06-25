@@ -8,6 +8,7 @@
 
 import { geminiJson, GeminiError } from "../_shared/gemini.ts";
 import { aiJson } from "../_shared/ai-provider.ts";
+import { generateImage } from "../_shared/image-gen.ts";
 import { insertLog } from "../_shared/logger.ts";
 import { writeAgentOutput, readAgentOutput, patchAgentState, loadRun } from "../_shared/pipeline.ts";
 import { selectModelForAgent } from "../_shared/model-config.ts";
@@ -26,6 +27,8 @@ interface VisionOutput {
     alt_text: string;
     caption: string;
     unsplash_url: string;
+    generated_url?: string | null;
+    generation_provider?: string;
   };
   inline_images: {
     placement: string;
@@ -41,6 +44,7 @@ interface VisionOutput {
     color_scheme: string;
   };
   og_image_description: string;
+  og_image_url?: string | null;
   image_mode_analysis?: string;
   accessibility_notes: string[];
 }
@@ -170,12 +174,31 @@ Deno.serve(async (req) => {
     if (!rewriteOutput) throw new Error("rewrite output not found");
 
     const visionOutput = await generateVisionRecommendations(topic, rewriteOutput.article_html || "", scoutOutput, selectedModel);
+
+    // Generate hero image (Lovable → Gemini cascade). Non-fatal if both fail.
+    const generateImages = run?.input_payload?.generate_images !== false;
+    if (generateImages) {
+      const heroPrompt = `Editorial hero photo for an article about: ${visionOutput.hero_image.query || topic}. ${visionOutput.hero_image.caption || ""}. Pakistani context, photojournalism style, vivid, news-magazine quality, 16:9 composition.`;
+      const heroResult = await generateImage(heroPrompt, { prefix: "hero" });
+      visionOutput.hero_image.generated_url = heroResult.url;
+      visionOutput.hero_image.generation_provider = heroResult.provider;
+      if (visionOutput.og_image_description) {
+        const ogResult = await generateImage(
+          `Social share OG image: ${visionOutput.og_image_description}. Bold composition, readable at small sizes.`,
+          { prefix: "og" }
+        );
+        visionOutput.og_image_url = ogResult.url;
+      }
+      await insertLog("ai", AGENT_KEY, "Image generation", `hero=${heroResult.provider} url=${heroResult.url ? "ok" : "none"}`, { run_id });
+    }
+
     const durationMs = Date.now() - startedAt;
 
     await writeAgentOutput(run_id, AGENT_KEY, visionOutput, { tokens: 500, duration_ms: durationMs, status: "completed" });
     await patchAgentState(run_id, AGENT_KEY, {
       status: "completed", finished_at: new Date().toISOString(),
       hero_image_query: visionOutput.hero_image.query,
+      hero_image_url: visionOutput.hero_image.generated_url,
       infographic_created: visionOutput.infographic_data.should_create,
       image_mode: scoutOutput?.image_mode || false,
     });

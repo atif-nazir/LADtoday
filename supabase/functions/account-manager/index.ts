@@ -196,10 +196,11 @@ Return ONLY valid JSON:
   };
 
   try {
-    const { result } = await aiJson<any>("You are a competitive intelligence analyst", prompt, schema, { 
-      model, 
-      temperature: 0.5, 
-      maxTokens: 600 
+    const { result } = await aiJson<any>(prompt, schema, {
+      model,
+      temperature: 0.5,
+      maxOutputTokens: 600,
+      system: "You are a competitive intelligence analyst. Output strict JSON only.",
     });
     return result;
   } catch {

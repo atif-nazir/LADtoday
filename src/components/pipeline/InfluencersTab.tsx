@@ -31,8 +31,8 @@ export function InfluencersTab() {
       .limit(10);
     
     const topicSuggestions = (accountManagerOutputs || [])
-      .filter(o => o.output?.competitive_intelligence?.next_topic_suggestions)
-      .flatMap(o => o.output.competitive_intelligence.next_topic_suggestions.map((topic: string) => ({
+      .filter((o: any) => o.output?.competitive_intelligence?.next_topic_suggestions)
+      .flatMap((o: any) => o.output.competitive_intelligence.next_topic_suggestions.map((topic: string) => ({
         topic,
         opportunity_score: o.output.competitive_intelligence.opportunity_score,
         trending: o.output.topic_velocity?.trending,

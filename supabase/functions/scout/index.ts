@@ -9,6 +9,7 @@
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { geminiJson, GeminiError } from "../_shared/gemini.ts";
+import { aiJson } from "../_shared/ai-provider.ts";
 import { insertLog } from "../_shared/logger.ts";
 import { writeAgentOutput, patchAgentState, loadRun } from "../_shared/pipeline.ts";
 import { selectModelForAgent } from "../_shared/model-config.ts";
@@ -102,7 +103,7 @@ Convert this into 3 focused web search queries a journalist would use to find au
 Prefer Pakistani context where relevant. Language: ${language}.
 Return JSON: { "queries": ["...","...","..."] }`;
   try {
-    const out = await geminiJson<{ queries: string[] }>(prompt, schema, { model, temperature: 0.4, maxOutputTokens: 512 });
+    const { result: out } = await aiJson<{ queries: string[] }>(prompt, schema, { model, temperature: 0.4, maxOutputTokens: 512 });
     const qs = (out.queries || []).map(q => q.trim()).filter(Boolean);
     return qs.length ? qs.slice(0, 3) : [topic];
   } catch (err) {
@@ -377,10 +378,10 @@ pakistan_relevance_score 0-10, scout_notes (1-2 sentence editor summary)
 
 Sources:\n${sourcesBlock}`;
 
-  const scored = await geminiJson(prompt, schema, { model, temperature: 0.3, maxOutputTokens: 8192 });
+  const { result: scored } = await aiJson<any>(prompt, schema, { model, temperature: 0.3, maxOutputTokens: 8192 });
 
   const scoredArr: any[] = scored.sources || [];
-  if (scoredArr.length === 0) throw new Error("Gemini scoring returned 0 sources");
+  if (scoredArr.length === 0) throw new Error("AI scoring returned 0 sources");
 
   const sources: SourceResult[] = enriched.map((s, i) => {
     const sc = scoredArr.find((x: any) => x.index === i) || scoredArr[i];
