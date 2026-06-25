@@ -809,12 +809,12 @@ function RunDetail({ runId }: { runId: string }) {
                   <div>
                     <span className="text-muted-foreground block font-medium">Configured Model</span>
                     <span className="font-mono text-[11px] bg-muted px-1.5 py-0.5 rounded block mt-0.5 w-fit">
-                      {run?.model_overrides?.[drawerAgent.key] || drawerAgent.model}
+                      {(run as any)?.model_overrides?.[drawerAgent.key] || drawerAgent.model}
                     </span>
                   </div>
                   <div>
                     <span className="text-muted-foreground block font-medium">Default Action/Tool</span>
-                    <span className="font-medium block mt-0.5 text-foreground/80">{drawerAgent.tool}</span>
+                    <span className="font-medium block mt-0.5 text-foreground/80">{(drawerAgent as any).tool || "—"}</span>
                   </div>
                   {states[drawerAgent.key]?.discovery_method && (
                     <div>
